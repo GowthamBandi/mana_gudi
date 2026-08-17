@@ -1,0 +1,103 @@
+rules_version = '2';
+
+// ============================================================================
+// Temple Seva Platform — Cloud Storage Security Rules
+//
+// Path layout is itself part of the security model: a file's visibility is
+// determined by where it lives, so a private invoice cannot be made public by
+// flipping a metadata field the client controls.
+//
+//   /public/**              world-readable  (gallery, published reports)
+//   /receipts/**            finance + auditor only
+//   /invoices/**            finance + auditor only  (expense supporting bills)
+//   /documents/public/**    world-readable
+//   /documents/private/**   admin only
+// ============================================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Role is resolved from Firestore, so deactivating an admin instantly
+    // revokes their file access too.
+    function adminData() {
+      return firestore.get(/databases/(default)/documents/admin_users/$(request.auth.uid)).data;
+    }
+
+    function isActiveAdmin() {
+      return isSignedIn()
+        && firestore.exists(/databases/(default)/documents/admin_users/$(request.auth.uid))
+        && adminData().status == 'ACTIVE';
+    }
+
+    function hasRole(roles) {
+      return isActiveAdmin() && adminData().role in roles;
+    }
+
+    function isFinance() {
+      return hasRole(['SUPER_ADMIN', 'FINANCE_ADMIN']);
+    }
+
+    function isContentAdmin() {
+      return hasRole(['SUPER_ADMIN', 'CONTENT_ADMIN']);
+    }
+
+    function canReadFinancial() {
+      return hasRole(['SUPER_ADMIN', 'FINANCE_ADMIN', 'AUDITOR']);
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/(jpeg|png|webp|gif)');
+    }
+
+    function isDocument() {
+      return request.resource.contentType.matches('application/pdf')
+          || request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    function underSize(mb) {
+      return request.resource.size < mb * 1024 * 1024;
+    }
+
+    // ------------------------------------------------------- public media
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if isContentAdmin() && isImage() && underSize(8);
+    }
+
+    match /documents/public/{allPaths=**} {
+      allow read: if true;
+      allow write: if isContentAdmin() && isDocument() && underSize(25);
+    }
+
+    // ------------------------------------------------------ private files
+    match /documents/private/{allPaths=**} {
+      allow read: if isActiveAdmin();
+      allow write: if isContentAdmin() && isDocument() && underSize(25);
+    }
+
+    match /receipts/{allPaths=**} {
+      allow read: if canReadFinancial();
+      allow write: if isFinance() && isDocument() && underSize(10);
+    }
+
+    match /invoices/{allPaths=**} {
+      allow read: if canReadFinancial();
+      allow write: if isFinance() && isDocument() && underSize(10);
+    }
+
+    match /hundi/{allPaths=**} {
+      allow read: if canReadFinancial();
+      allow write: if isFinance() && isDocument() && underSize(10);
+    }
+
+    // Anything not explicitly matched above is denied, including the bucket
+    // root — so an attacker cannot upload to an unclaimed path.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

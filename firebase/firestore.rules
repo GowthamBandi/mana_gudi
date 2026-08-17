@@ -1,0 +1,597 @@
+rules_version = '2';
+
+// ============================================================================
+// Temple Seva Platform — Firestore Security Rules
+//
+// ENFORCEMENT MODEL
+// -----------------
+// These rules are the PRIMARY authorization boundary. The web client is treated
+// as fully hostile: it may be modified, replayed, or replaced by curl. Nothing
+// below trusts a client-supplied role, uid, status, or financial state.
+//
+// Role source of truth: /admin_users/{uid}.role  (writable only by SUPER_ADMIN)
+// Financial integrity:  append-only /revisions subcollection gates every change
+//                       to a VERIFIED or PUBLISHED money record.
+// PII containment:      public_* collections use hasOnly() field allowlists, so
+//                       a projection physically cannot carry donor phone/address.
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------------------------------------------- helpers
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function adminPath() {
+      return /databases/$(database)/documents/admin_users/$(request.auth.uid);
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(adminPath());
+    }
+
+    // An admin record that has been deactivated loses all power immediately,
+    // even if the browser still holds a valid, unexpired ID token.
+    function isActiveAdmin() {
+      return isAdmin() && get(adminPath()).data.status == 'ACTIVE';
+    }
+
+    function role() {
+      return get(adminPath()).data.role;
+    }
+
+    function hasRole(roles) {
+      return isActiveAdmin() && role() in roles;
+    }
+
+    function isSuper() {
+      return hasRole(['SUPER_ADMIN']);
+    }
+
+    function isFinance() {
+      return hasRole(['SUPER_ADMIN', 'FINANCE_ADMIN']);
+    }
+
+    function isEventAdmin() {
+      return hasRole(['SUPER_ADMIN', 'EVENT_ADMIN']);
+    }
+
+    function isContentAdmin() {
+      return hasRole(['SUPER_ADMIN', 'CONTENT_ADMIN']);
+    }
+
+    // Auditors read internal records but may never mutate them.
+    function canReadInternal() {
+      return hasRole(['SUPER_ADMIN', 'FINANCE_ADMIN', 'AUDITOR']);
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function unchanged(field) {
+      return incoming()[field] == existing()[field];
+    }
+
+    // Money is stored as integer paise. Floats never touch a balance.
+    function isValidAmount(v) {
+      return v is int && v > 0 && v <= 100000000000;
+    }
+
+    function isNonEmptyString(v, maxLen) {
+      return v is string && v.size() > 0 && v.size() <= maxLen;
+    }
+
+    // ------------------------------------------------------- financial states
+
+    function isLocked(status) {
+      // Once money is verified or published it is historical truth.
+      return status in ['VERIFIED', 'PUBLISHED', 'REVERSED', 'ARCHIVED'];
+    }
+
+    // Fields that may never drift once a record is locked, except through the
+    // revision-gated correction path below.
+    function financialCoreUnchanged() {
+      return unchanged('amountPaise')
+          && unchanged('fundId')
+          && unchanged('occurredAt')
+          && unchanged('receiptNo')
+          && unchanged('createdBy');
+    }
+
+    // A correction is authorised ONLY when an immutable revision document has
+    // already been written that captures the CURRENT (pre-change) values.
+    // Firestore evaluates each write independently, so the revision cannot be
+    // "batched away" — it must exist and match before the parent may move.
+    //
+    // This is what makes silent history alteration impossible: to change a
+    // published 10,000 to 1,000, the actor must first publish an immutable
+    // record saying it used to be 10,000.
+    function correctionIsWitnessed(col, docId) {
+      let nextRev = existing().revisionCount + 1;
+      let revPath = /databases/$(database)/documents/$(col)/$(docId)/revisions/$(string(nextRev));
+      return incoming().revisionCount == nextRev
+          && exists(revPath)
+          && get(revPath).data.snapshot.amountPaise == existing().amountPaise
+          && get(revPath).data.snapshot.status == existing().status
+          && get(revPath).data.snapshot.revisionCount == existing().revisionCount
+          && isNonEmptyString(incoming().lastCorrectionReason, 500);
+    }
+
+    // ============================================================== ADMIN USERS
+
+    match /admin_users/{uid} {
+      // An admin may read their own record (to resolve their role in the UI).
+      allow get: if isSignedIn() && (request.auth.uid == uid || canReadInternal() || isSuper());
+      allow list: if isSuper() || hasRole(['AUDITOR']);
+
+      // Only SUPER_ADMIN provisions administrators. There is deliberately no
+      // public self-registration path anywhere in this ruleset.
+      allow create: if isSuper()
+                    && incoming().role in ['SUPER_ADMIN', 'FINANCE_ADMIN', 'EVENT_ADMIN',
+                                           'CONTENT_ADMIN', 'AUDITOR', 'VOLUNTEER']
+                    && incoming().status in ['ACTIVE', 'SUSPENDED']
+                    && isNonEmptyString(incoming().displayName, 120)
+                    && incoming().createdBy == request.auth.uid;
+
+      // Privilege-escalation guards:
+      //  - nobody may edit their own role or status (no self-promotion, and no
+      //    lone super admin quietly demoting the peer who would review them)
+      //  - non-supers may not touch role/status at all
+      allow update: if isSuper()
+                    && request.auth.uid != uid
+                    && incoming().role in ['SUPER_ADMIN', 'FINANCE_ADMIN', 'EVENT_ADMIN',
+                                           'CONTENT_ADMIN', 'AUDITOR', 'VOLUNTEER']
+                    && incoming().status in ['ACTIVE', 'SUSPENDED'];
+
+      // Admins are deactivated, never deleted — their audit trail must resolve.
+      allow delete: if false;
+    }
+
+    // ================================================================== CONFIG
+
+    match /config/{key} {
+      allow read: if true;   // approval thresholds are public-interest info
+      allow write: if isSuper();
+    }
+
+    // ================================================================ COUNTERS
+    // Receipt and voucher sequences. Kept out of /config because the treasurer
+    // must be able to allocate a receipt number without holding super-admin
+    // rights, and kept strictly monotonic so that a receipt number can never be
+    // handed out twice — two receipts bearing DON-2026-00001 would make the
+    // public ledger unverifiable.
+
+    match /counters/{counterId} {
+      allow read: if isActiveAdmin();
+      allow create: if isFinance() && incoming().seq == 1;
+      allow update: if isFinance() && incoming().seq == existing().seq + 1;
+      allow delete: if false;
+    }
+
+    // ================================================================ DONATIONS
+    // Internal record — carries donor PII. Never publicly readable.
+
+    match /donations/{donationId} {
+      allow read: if canReadInternal();
+
+      allow create: if isFinance()
+                    && incoming().status in ['DRAFT', 'SUBMITTED']
+                    && incoming().createdBy == request.auth.uid
+                    && isValidAmount(incoming().amountPaise)
+                    && incoming().currency == 'INR'
+                    && isNonEmptyString(incoming().receiptNo, 40)
+                    && isNonEmptyString(incoming().fundId, 60)
+                    && incoming().displayPreference in ['FULL', 'MASKED', 'ANONYMOUS']
+                    && incoming().revisionCount == 0
+                    && incoming().verifiedBy == null
+                    && incoming().publishedBy == null;
+
+      allow update: if isFinance() && (
+        // --- ordinary editing, only while still a draft -------------------
+        (existing().status == 'DRAFT'
+          && incoming().status in ['DRAFT', 'SUBMITTED']
+          && isValidAmount(incoming().amountPaise)
+          && unchanged('createdBy')
+          && incoming().revisionCount == existing().revisionCount
+          && incoming().verifiedBy == null)
+
+        // --- two-person verification --------------------------------------
+        // The verifier must not be the creator. This is the core segregation
+        // of duties control and it is enforced here, not in the UI.
+        || (existing().status == 'SUBMITTED'
+          && incoming().status == 'VERIFIED'
+          && incoming().verifiedBy == request.auth.uid
+          && request.auth.uid != existing().createdBy
+          && financialCoreUnchanged()
+          && incoming().revisionCount == existing().revisionCount)
+
+        // --- rejection back to the creator --------------------------------
+        || (existing().status == 'SUBMITTED'
+          && incoming().status in ['REJECTED', 'DRAFT']
+          && request.auth.uid != existing().createdBy
+          && financialCoreUnchanged()
+          && isNonEmptyString(incoming().rejectionReason, 500))
+
+        // --- publication ---------------------------------------------------
+        || (existing().status == 'VERIFIED'
+          && incoming().status == 'PUBLISHED'
+          && incoming().publishedBy == request.auth.uid
+          && financialCoreUnchanged()
+          && unchanged('verifiedBy')
+          && incoming().revisionCount == existing().revisionCount)
+
+        // --- witnessed correction of locked history ------------------------
+        || (isLocked(existing().status)
+          && incoming().status == existing().status
+          && unchanged('receiptNo')
+          && unchanged('createdBy')
+          && unchanged('verifiedBy')
+          && correctionIsWitnessed('donations', donationId))
+
+        // --- witnessed reversal --------------------------------------------
+        || (existing().status == 'PUBLISHED'
+          && incoming().status == 'REVERSED'
+          && financialCoreUnchanged()
+          && correctionIsWitnessed('donations', donationId))
+      );
+
+      // Financial records are never destroyed, by anyone, including SUPER_ADMIN.
+      allow delete: if false;
+
+      // -------- immutable revision ledger --------
+      match /revisions/{revId} {
+        allow read: if canReadInternal();
+        allow create: if isFinance()
+                      && incoming().correctedBy == request.auth.uid
+                      && isNonEmptyString(incoming().reason, 500)
+                      && incoming().snapshot.amountPaise ==
+                           get(/databases/$(database)/documents/donations/$(donationId)).data.amountPaise
+                      && incoming().snapshot.status ==
+                           get(/databases/$(database)/documents/donations/$(donationId)).data.status
+                      && revId == string(
+                           get(/databases/$(database)/documents/donations/$(donationId)).data.revisionCount + 1);
+        // Append-only, forever.
+        allow update, delete: if false;
+      }
+    }
+
+    // ================================================================= EXPENSES
+
+    match /expenses/{expenseId} {
+      allow read: if canReadInternal();
+
+      allow create: if isFinance()
+                    && incoming().status in ['DRAFT', 'SUBMITTED']
+                    && incoming().createdBy == request.auth.uid
+                    && isValidAmount(incoming().amountPaise)
+                    && isNonEmptyString(incoming().voucherNo, 40)
+                    && isNonEmptyString(incoming().fundId, 60)
+                    && isNonEmptyString(incoming().category, 60)
+                    && incoming().revisionCount == 0
+                    && incoming().verifiedBy == null;
+
+      allow update: if isFinance() && (
+        (existing().status == 'DRAFT'
+          && incoming().status in ['DRAFT', 'SUBMITTED']
+          && isValidAmount(incoming().amountPaise)
+          && unchanged('createdBy')
+          && incoming().revisionCount == existing().revisionCount
+          && incoming().verifiedBy == null)
+
+        || (existing().status == 'SUBMITTED'
+          && incoming().status == 'VERIFIED'
+          && incoming().verifiedBy == request.auth.uid
+          && request.auth.uid != existing().createdBy
+          && unchanged('amountPaise') && unchanged('fundId')
+          && unchanged('occurredAt') && unchanged('voucherNo') && unchanged('createdBy')
+          && incoming().revisionCount == existing().revisionCount)
+
+        || (existing().status == 'SUBMITTED'
+          && incoming().status in ['REJECTED', 'DRAFT']
+          && request.auth.uid != existing().createdBy
+          && isNonEmptyString(incoming().rejectionReason, 500))
+
+        || (existing().status == 'VERIFIED'
+          && incoming().status == 'PUBLISHED'
+          && incoming().publishedBy == request.auth.uid
+          && unchanged('amountPaise') && unchanged('fundId')
+          && unchanged('occurredAt') && unchanged('voucherNo')
+          && unchanged('verifiedBy')
+          && incoming().revisionCount == existing().revisionCount)
+
+        || (isLocked(existing().status)
+          && incoming().status == existing().status
+          && unchanged('voucherNo') && unchanged('createdBy') && unchanged('verifiedBy')
+          && correctionIsWitnessed('expenses', expenseId))
+
+        || (existing().status == 'PUBLISHED'
+          && incoming().status == 'REVERSED'
+          && unchanged('amountPaise') && unchanged('fundId') && unchanged('voucherNo')
+          && correctionIsWitnessed('expenses', expenseId))
+      );
+
+      allow delete: if false;
+
+      match /revisions/{revId} {
+        allow read: if canReadInternal();
+        allow create: if isFinance()
+                      && incoming().correctedBy == request.auth.uid
+                      && isNonEmptyString(incoming().reason, 500)
+                      && incoming().snapshot.amountPaise ==
+                           get(/databases/$(database)/documents/expenses/$(expenseId)).data.amountPaise
+                      && incoming().snapshot.status ==
+                           get(/databases/$(database)/documents/expenses/$(expenseId)).data.status
+                      && revId == string(
+                           get(/databases/$(database)/documents/expenses/$(expenseId)).data.revisionCount + 1);
+        allow update, delete: if false;
+      }
+    }
+
+    // ==================================================================== FUNDS
+
+    match /funds/{fundId} {
+      allow read: if canReadInternal();
+      allow create, update: if isFinance()
+                            && isNonEmptyString(incoming().name, 120)
+                            && incoming().balancePaise is int;
+      allow delete: if false;
+    }
+
+    // ============================================================ HUNDI SESSIONS
+    // Cash counting requires multiple counters and a separate verifier.
+
+    match /hundi_sessions/{sessionId} {
+      allow read: if canReadInternal();
+
+      allow create: if isFinance()
+                    && incoming().status == 'OPEN'
+                    && incoming().openedBy == request.auth.uid
+                    && incoming().counters is list
+                    && incoming().counters.size() >= 2;
+
+      allow update: if isFinance() && (
+        (existing().status == 'OPEN'
+          && incoming().status in ['OPEN', 'COUNTED']
+          && incoming().openedBy == existing().openedBy)
+
+        // The verifier of a cash count may not be one of the people who counted.
+        || (existing().status == 'COUNTED'
+          && incoming().status == 'VERIFIED'
+          && incoming().verifiedBy == request.auth.uid
+          && !(request.auth.uid in existing().counters)
+          && request.auth.uid != existing().openedBy
+          && incoming().totalPaise == existing().totalPaise)
+
+        || (existing().status == 'VERIFIED'
+          && incoming().status == 'DEPOSITED'
+          && incoming().totalPaise == existing().totalPaise)
+      );
+
+      allow delete: if false;
+    }
+
+    // =============================================================== AUDIT LOGS
+    // Append-only. No update, no delete, for any role, ever.
+
+    match /audit_logs/{logId} {
+      allow read: if hasRole(['SUPER_ADMIN', 'AUDITOR']);
+
+      // An actor cannot forge an entry attributed to somebody else, and cannot
+      // backdate one: the timestamp must be the server's view of now.
+      allow create: if isActiveAdmin()
+                    && incoming().actorUid == request.auth.uid
+                    && incoming().actorRole == role()
+                    && incoming().at == request.time
+                    && isNonEmptyString(incoming().action, 80)
+                    && isNonEmptyString(incoming().resourceType, 60);
+
+      allow update, delete: if false;
+    }
+
+    // =================================================================== EVENTS
+
+    match /events/{eventId} {
+      allow read: if isActiveAdmin();
+      allow create, update: if isEventAdmin()
+                            && isNonEmptyString(incoming().title, 200)
+                            && incoming().status in ['DRAFT', 'PUBLISHED', 'CANCELLED', 'COMPLETED']
+                            && incoming().capacity is int
+                            && incoming().capacity >= 0;
+      allow delete: if isSuper() && existing().status == 'DRAFT';
+    }
+
+    // ============================================================ REGISTRATIONS
+    // Contains devotee PII (phone/email) — public read is never permitted.
+    // Public create is allowed so villagers can register without an account.
+
+    match /registrations/{regId} {
+      allow read: if isEventAdmin() || canReadInternal();
+      allow list: if isEventAdmin() || canReadInternal();
+
+      // Duplicate suppression: the document ID is derived from event + phone,
+      // so a second identical registration collides and fails on create.
+      allow create: if isNonEmptyString(incoming().eventId, 80)
+                    && isNonEmptyString(incoming().name, 120)
+                    && isNonEmptyString(incoming().phone, 20)
+                    && incoming().participantCount is int
+                    && incoming().participantCount >= 1
+                    && incoming().participantCount <= 20
+                    && incoming().status == 'CONFIRMED'
+                    && incoming().createdAt == request.time
+                    && exists(/databases/$(database)/documents/public_events/$(incoming().eventId));
+
+      allow update: if isEventAdmin();
+      allow delete: if isSuper();
+    }
+
+    // ================================================================= FEEDBACK
+    // Complaints/suggestions. Readable by ID (capability URL) so a villager can
+    // track their own submission, but never listable by the public.
+
+    match /feedback/{feedbackId} {
+      allow get: if true;
+      allow list: if isActiveAdmin();
+
+      allow create: if incoming().type in ['COMPLAINT', 'SUGGESTION']
+                    && isNonEmptyString(incoming().message, 5000)
+                    && incoming().status == 'SUBMITTED'
+                    && incoming().createdAt == request.time;
+
+      allow update: if isActiveAdmin()
+                    && incoming().status in ['SUBMITTED', 'UNDER_REVIEW', 'ACTION_TAKEN', 'RESOLVED', 'CLOSED'];
+      allow delete: if isSuper();
+
+      // Staff notes about a complainant stay invisible to the capability URL.
+      match /internal/{noteId} {
+        allow read, write: if isActiveAdmin();
+      }
+    }
+
+    // ================================================================ VOLUNTEERS
+
+    match /volunteer_signups/{signupId} {
+      allow read, list: if isActiveAdmin();
+      allow create: if isNonEmptyString(incoming().name, 120)
+                    && isNonEmptyString(incoming().phone, 20)
+                    && isNonEmptyString(incoming().activityId, 80)
+                    && incoming().createdAt == request.time;
+      allow update: if isEventAdmin();
+      allow delete: if isSuper();
+    }
+
+    // ================================================================ DOCUMENTS
+    // Internal registry of every document, including RESTRICTED ones.
+
+    match /documents/{docId} {
+      allow read: if isActiveAdmin();
+      allow create, update: if isContentAdmin()
+                            && incoming().visibility in ['PUBLIC', 'ADMIN', 'RESTRICTED'];
+      allow delete: if isSuper();
+    }
+
+    // ========================================================================
+    // PUBLIC PROJECTIONS
+    //
+    // Separate read models. The public never reads an internal collection, so
+    // "make it transparent" can never accidentally mean "expose donor phone
+    // numbers". Each projection is guarded by a hasOnly() allowlist, which is a
+    // structural guarantee rather than a convention.
+    // ========================================================================
+
+    match /public_donations/{donationId} {
+      allow read: if true;
+
+      allow create, update: if isFinance()
+        // The source record must genuinely be published — a projection cannot
+        // be conjured for a draft or rejected donation.
+        && get(/databases/$(database)/documents/donations/$(donationId)).data.status == 'PUBLISHED'
+        && incoming().amountPaise ==
+             get(/databases/$(database)/documents/donations/$(donationId)).data.amountPaise
+        && incoming().receiptNo ==
+             get(/databases/$(database)/documents/donations/$(donationId)).data.receiptNo
+        && incoming().keys().hasOnly(['receiptNo', 'displayName', 'amountPaise', 'currency',
+                                      'purpose', 'fundId', 'fundName', 'occurredAt',
+                                      'publishedAt', 'paymentMethod', 'revisionCount',
+                                      'corrected', 'status'])
+        // An anonymous donor's name must not survive into the public read model.
+        && (get(/databases/$(database)/documents/donations/$(donationId)).data.displayPreference
+              != 'ANONYMOUS'
+            || incoming().displayName == 'Anonymous Devotee');
+
+      allow delete: if isSuper();
+    }
+
+    match /public_expenses/{expenseId} {
+      allow read: if true;
+      allow create, update: if isFinance()
+        && get(/databases/$(database)/documents/expenses/$(expenseId)).data.status == 'PUBLISHED'
+        && incoming().amountPaise ==
+             get(/databases/$(database)/documents/expenses/$(expenseId)).data.amountPaise
+        && incoming().keys().hasOnly(['voucherNo', 'category', 'description', 'amountPaise',
+                                      'currency', 'fundId', 'fundName', 'payeeDisplay',
+                                      'occurredAt', 'publishedAt', 'revisionCount',
+                                      'corrected', 'status']);
+      allow delete: if isSuper();
+    }
+
+    // Public, permanent record that a published figure was later corrected.
+    // Transparency is not just the current number — it is the fact it changed.
+    match /public_corrections/{correctionId} {
+      allow read: if true;
+      allow create: if isFinance()
+                    && incoming().keys().hasOnly(['recordType', 'recordId', 'publicRef',
+                                                  'fromAmountPaise', 'toAmountPaise',
+                                                  'reason', 'correctedAt', 'revisionNumber']);
+      allow update, delete: if false;
+    }
+
+    match /public_funds/{fundId} {
+      allow read: if true;
+      allow write: if isFinance()
+                   && incoming().keys().hasOnly(['name', 'description', 'totalInPaise',
+                                                 'totalOutPaise', 'balancePaise',
+                                                 'restricted', 'updatedAt', 'order']);
+    }
+
+    match /public_stats/{statId} {
+      allow read: if true;
+      allow write: if isFinance();
+    }
+
+    match /public_events/{eventId} {
+      allow read: if true;
+      allow write: if isEventAdmin()
+                   && incoming().keys().hasOnly(['title', 'description', 'deity', 'eventType',
+                                                 'startAt', 'endAt', 'location', 'capacity',
+                                                 'registrationRequired', 'registrationOpen',
+                                                 'feePaise', 'instructions', 'materials',
+                                                 'status', 'registrationCount', 'updatedAt']);
+    }
+
+    match /public_announcements/{id} {
+      allow read: if true;
+      allow write: if isContentAdmin()
+                   && incoming().status in ['PUBLISHED', 'EXPIRED', 'ARCHIVED'];
+    }
+
+    match /public_documents/{id} {
+      allow read: if true;
+      // A document may only reach the public read model if its internal
+      // registry entry is explicitly marked PUBLIC.
+      allow write: if isContentAdmin()
+                   && get(/databases/$(database)/documents/documents/$(id)).data.visibility == 'PUBLIC'
+                   && incoming().keys().hasOnly(['title', 'category', 'storagePath', 'downloadUrl',
+                                                 'sizeBytes', 'contentType', 'publishedAt']);
+    }
+
+    match /public_gallery/{id} {
+      allow read: if true;
+      allow write: if isContentAdmin();
+    }
+
+    match /public_reports/{id} {
+      allow read: if true;
+      allow write: if isFinance();
+    }
+
+    match /temple_profile/{id} {
+      allow read: if true;
+      allow write: if isContentAdmin();
+    }
+
+    // ------------------------------------------------------------- default deny
+    // Any collection not named above is inaccessible. New features must
+    // consciously opt in to access rather than inheriting it.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

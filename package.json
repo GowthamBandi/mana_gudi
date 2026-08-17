@@ -5,22 +5,44 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "start": "npx serve out -l 3000",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:rules": "firebase emulators:exec --only firestore --project temple-rules-test \"vitest run --config vitest.rules.config.mts\"",
+    "test:mutation": "node scripts/mutation-check.mjs",
+    "test:e2e": "playwright test",
+    "emulators": "firebase emulators:start --only auth,firestore --project temple-seva-platform",
+    "seed": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 node scripts/seed.mjs",
+    "verify:all": "npm run lint && npm run test && npm run test:rules && npm run build"
   },
   "dependencies": {
+    "firebase": "^12.17.1",
+    "firebase-admin": "^14.2.0",
     "next": "16.3.1",
+    "qrcode": "^1.5.4",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
+    "jsdom": "^30.0.1",
+    "prettier": "^3.9.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

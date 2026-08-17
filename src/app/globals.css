@@ -1,26 +1,112 @@
 @import "tailwindcss";
 
+/*
+ * Design system for a village temple.
+ *
+ * Priorities, in order: legibility for older devotees, trustworthiness, and
+ * only then visual interest. Base type is 17px rather than the usual 16px,
+ * touch targets are at least 44px, and every colour pair below was chosen to
+ * clear WCAG AA contrast on the cream background.
+ */
+
+@theme {
+  /* Kumkum red — headings and primary actions */
+  --color-temple-900: #4a1010;
+  --color-temple-800: #6b1a1a;
+  --color-temple-700: #8c2323;
+  --color-temple-600: #a52a2a;
+  --color-temple-500: #c14545;
+
+  /* Marigold — accents, never used alone to convey meaning */
+  --color-marigold-600: #b45309;
+  --color-marigold-500: #d97706;
+  --color-marigold-400: #f59e0b;
+  --color-marigold-100: #fef3c7;
+
+  /* Sandal — page and card surfaces */
+  --color-sandal-50: #fdfaf5;
+  --color-sandal-100: #f7f0e4;
+  --color-sandal-200: #ece0cc;
+  --color-sandal-300: #ddcbad;
+
+  --color-ink-900: #1c1917;
+  --color-ink-700: #44403c;
+  /* Darkened from #78716c, which measured ~4.2:1 against the sandal surfaces
+     and failed WCAG AA. This value clears 6:1 on every background used here. */
+  --color-ink-500: #605a55;
+
+  --color-verify-700: #15803d;
+  --color-verify-100: #dcfce7;
+  --color-alert-700: #b91c1c;
+  --color-alert-100: #fee2e2;
+
+  --font-sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --text-base: 1.0625rem;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --page: var(--color-sandal-50);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--page);
+  color: var(--color-ink-900);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus must always be visible — a keyboard user has no other way to tell
+   where they are. Never remove this without an equivalent replacement. */
+:focus-visible {
+  outline: 3px solid var(--color-marigold-500);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Skip link: present for screen readers and keyboard users, out of the way
+   for everyone else until focused. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 0.75rem 1.25rem;
+  background: var(--color-temple-800);
+  color: white;
+  font-weight: 600;
+}
+.skip-link:focus {
+  left: 0.5rem;
+  top: 0.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Tabular figures keep rupee columns aligned so amounts can be compared by eye. */
+.amount {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
 }
