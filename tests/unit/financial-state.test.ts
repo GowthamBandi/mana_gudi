@@ -10,12 +10,11 @@ import {
 import type { Role } from "@/lib/domain/rbac";
 
 const CREATOR = "uid-creator";
-const REVIEWER = "uid-reviewer";
 
 function ctx(overrides: Partial<TransitionContext> = {}): TransitionContext {
   return {
     kind: "donation",
-    actorUid: REVIEWER,
+    actorUid: CREATOR,
     actorRole: "FINANCE_ADMIN",
     actorStatus: "ACTIVE",
     createdBy: CREATOR,
@@ -23,40 +22,22 @@ function ctx(overrides: Partial<TransitionContext> = {}): TransitionContext {
   };
 }
 
-describe("two-person approval", () => {
-  it("lets a second finance admin verify a submitted donation", () => {
-    expect(evaluateTransition("SUBMITTED", "VERIFIED", ctx()).ok).toBe(true);
+describe("single-authority immediate publication workflow", () => {
+  it("allows an authorized finance admin to publish a donation directly upon creation", () => {
+    expect(evaluateTransition("DRAFT", "PUBLISHED", ctx()).ok).toBe(true);
   });
 
-  it("refuses to let the creator verify their own donation", () => {
-    const result = evaluateTransition("SUBMITTED", "VERIFIED", ctx({ actorUid: CREATOR }));
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("SELF_APPROVAL");
+  it("allows an authorized finance admin to publish a submitted donation", () => {
+    expect(evaluateTransition("SUBMITTED", "PUBLISHED", ctx()).ok).toBe(true);
   });
 
-  it("refuses self-approval even for a super admin", () => {
-    const result = evaluateTransition(
-      "SUBMITTED",
-      "VERIFIED",
-      ctx({ actorUid: CREATOR, actorRole: "SUPER_ADMIN" }),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("SELF_APPROVAL");
-  });
-
-  it("refuses to let the creator reject their own record to dodge review", () => {
-    const result = evaluateTransition(
-      "SUBMITTED",
-      "DRAFT",
-      ctx({ actorUid: CREATOR, reason: "changed my mind" }),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("SELF_APPROVAL");
+  it("allows super admin to publish directly", () => {
+    expect(evaluateTransition("DRAFT", "PUBLISHED", ctx({ actorRole: "SUPER_ADMIN" })).ok).toBe(true);
   });
 });
 
-describe("locked history", () => {
-  it("marks verified and later states as locked", () => {
+describe("locked history & witnessed corrections", () => {
+  it("marks verified, published, reversed, and archived as locked", () => {
     expect(isLocked("DRAFT")).toBe(false);
     expect(isLocked("SUBMITTED")).toBe(false);
     expect(isLocked("VERIFIED")).toBe(true);
@@ -107,12 +88,8 @@ describe("locked history", () => {
   });
 });
 
-describe("illegal shortcuts", () => {
+describe("illegal shortcuts & public visibility", () => {
   const illegal: Array<[FinancialStatus, FinancialStatus]> = [
-    ["DRAFT", "VERIFIED"],
-    ["DRAFT", "PUBLISHED"],
-    ["SUBMITTED", "PUBLISHED"],
-    ["REJECTED", "PUBLISHED"],
     ["REVERSED", "PUBLISHED"],
     ["PUBLISHED", "DRAFT"],
     ["PUBLISHED", "SUBMITTED"],
@@ -123,9 +100,9 @@ describe("illegal shortcuts", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("never lets a draft skip straight to the public site", () => {
+  it("ensures only PUBLISHED records are publicly visible", () => {
     expect(isPubliclyVisible("DRAFT")).toBe(false);
-    expect(isPubliclyVisible("VERIFIED")).toBe(false);
+    expect(isPubliclyVisible("SUBMITTED")).toBe(false);
     expect(isPubliclyVisible("PUBLISHED")).toBe(true);
   });
 });
@@ -133,9 +110,8 @@ describe("illegal shortcuts", () => {
 describe("role restrictions", () => {
   it("stops an auditor changing anything", () => {
     const attempts: Array<[FinancialStatus, FinancialStatus]> = [
-      ["DRAFT", "SUBMITTED"],
-      ["SUBMITTED", "VERIFIED"],
-      ["VERIFIED", "PUBLISHED"],
+      ["DRAFT", "PUBLISHED"],
+      ["SUBMITTED", "PUBLISHED"],
       ["PUBLISHED", "REVERSED"],
     ];
     for (const [from, to] of attempts) {
@@ -148,8 +124,8 @@ describe("role restrictions", () => {
     }
   });
 
-  it("stops an event admin touching donations", () => {
-    const result = evaluateTransition("SUBMITTED", "VERIFIED", ctx({ actorRole: "EVENT_ADMIN" }));
+  it("stops an event admin touching financial records", () => {
+    const result = evaluateTransition("DRAFT", "PUBLISHED", ctx({ actorRole: "EVENT_ADMIN" }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("MISSING_PERMISSION");
   });
@@ -165,8 +141,8 @@ describe("role restrictions", () => {
     const roles: Role[] = ["SUPER_ADMIN", "FINANCE_ADMIN"];
     for (const role of roles) {
       const result = evaluateTransition(
-        "SUBMITTED",
-        "VERIFIED",
+        "DRAFT",
+        "PUBLISHED",
         ctx({ actorRole: role, actorStatus: "SUSPENDED" }),
       );
       expect(result.ok, `${role} should be powerless while suspended`).toBe(false);
@@ -176,15 +152,8 @@ describe("role restrictions", () => {
 });
 
 describe("availableTransitions", () => {
-  it("offers verification and rejection on a submitted record", () => {
-    const options = availableTransitions("SUBMITTED", ctx());
-    expect(options).toContain("VERIFIED");
-    expect(options).toContain("REJECTED");
-    expect(options).not.toContain("PUBLISHED");
-  });
-
-  it("offers nothing to the creator of a submitted record", () => {
-    const options = availableTransitions("SUBMITTED", ctx({ actorUid: CREATOR }));
-    expect(options).toEqual([]);
+  it("offers direct publication on a draft record for finance admins", () => {
+    const options = availableTransitions("DRAFT", ctx());
+    expect(options).toContain("PUBLISHED");
   });
 });

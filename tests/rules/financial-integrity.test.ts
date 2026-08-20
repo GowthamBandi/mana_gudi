@@ -45,9 +45,9 @@ describe("creating a donation", () => {
     await assertFails(setDoc(doc(db, "donations/d1"), donationDoc({ status: "VERIFIED" })));
   });
 
-  it("refuses a donation created straight into PUBLISHED", async () => {
+  it("allows a donation created straight into PUBLISHED", async () => {
     const db = asUser(env, UIDS.finance1).firestore();
-    await assertFails(setDoc(doc(db, "donations/d1"), donationDoc({ status: "PUBLISHED" })));
+    await assertSucceeds(setDoc(doc(db, "donations/d1"), donationDoc({ status: "PUBLISHED" })));
   });
 
   it("refuses a donation that arrives pre-verified by someone else", async () => {

@@ -13,7 +13,7 @@ export default function FeedbackPage() {
   return (
     <>
       <nav aria-label="Breadcrumb" className="mb-4 text-sm">
-        <Link href="/">Home</Link> <span aria-hidden="true">›</span> Complaints and suggestions
+        <Link href="/" prefetch={false}>Home</Link> <span aria-hidden="true">›</span> Complaints and suggestions
       </nav>
 
       <h1 className="text-3xl font-bold text-temple-800">Complaints and suggestions</h1>

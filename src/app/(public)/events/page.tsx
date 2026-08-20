@@ -15,7 +15,7 @@ export default function EventsPage() {
   return (
     <>
       <nav aria-label="Breadcrumb" className="mb-4 text-sm">
-        <Link href="/">Home</Link> <span aria-hidden="true">›</span> Events
+        <Link href="/" prefetch={false}>Home</Link> <span aria-hidden="true">›</span> Events
       </nav>
 
       <h1 className="text-3xl font-bold text-temple-800">Events, poojas and homams</h1>
@@ -24,9 +24,9 @@ export default function EventsPage() {
         no account required, just your name and mobile number.
       </p>
 
-      <Suspense fallback={<LoadingState label="Loading events" />}>
+      <div className="mt-6">
         <EventsBrowser />
-      </Suspense>
+      </div>
     </>
   );
 }

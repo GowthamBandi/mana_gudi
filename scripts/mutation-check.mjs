@@ -14,7 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const ORIGINAL = fs.readFileSync("firebase/firestore.rules", "utf8");
+const ORIGINAL = fs.readFileSync("firebase/firestore.rules", "utf8").replace(/\r\n/g, "\n");
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "temple-mutants-"));
 
 const MUTANTS = [
@@ -122,7 +122,7 @@ for (const [index, mutant] of MUTANTS.entries()) {
   try {
     execSync(
       `firebase emulators:exec --only firestore --project temple-rules-test ` +
-        `"npx vitest run --config vitest.rules.config.mts"`,
+        `"node node_modules/vitest/vitest.mjs run --config vitest.rules.config.mts"`,
       { env: { ...process.env, RULES_FILE: mutatedPath }, stdio: "pipe" },
     );
   } catch {

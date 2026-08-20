@@ -4,17 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { useAdminSession } from "@/lib/auth/admin-session";
 import { formatPaise, rupeesToPaise } from "@/lib/domain/money";
 import { DISPLAY_PREFERENCE_LABELS, DISPLAY_PREFERENCES } from "@/lib/domain/donor-privacy";
-import { evaluateTransition } from "@/lib/domain/financial-state";
-import { can } from "@/lib/domain/rbac";
+import { can, type AdminIdentity } from "@/lib/domain/rbac";
 import {
   WorkflowError,
   correctDonation,
   createDonation,
   listDonations,
-  publishDonation,
-  rejectDonation,
-  submitDonation,
-  verifyDonation,
 } from "@/lib/services/donations";
 import { PAYMENT_METHODS, toDate, type Donation } from "@/lib/services/types";
 import { describeError } from "@/lib/use-async";
@@ -29,8 +24,9 @@ import {
   inputClass,
 } from "@/components/ui";
 import { RequirePermission } from "@/components/admin/chrome";
+import { ProofUpload } from "@/components/admin/proof-upload";
 
-const FILTERS = ["SUBMITTED", "DRAFT", "VERIFIED", "PUBLISHED", "REJECTED", "ALL"] as const;
+const FILTERS = ["PUBLISHED", "ALL"] as const;
 
 export default function AdminDonationsPage() {
   return (
@@ -44,12 +40,7 @@ function DonationsWorkspace() {
   const { state: session } = useAdminSession();
   const identity = session.phase === "ready" ? session.identity : null;
 
-  // Treasurers land on their action queue; auditors and anyone who cannot
-  // verify land on the full ledger, since an empty "awaiting verification"
-  // list would otherwise look like the temple has no records at all.
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]>(
-    identity && can(identity, "donation:verify") ? "SUBMITTED" : "ALL",
-  );
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("PUBLISHED");
   const [items, setItems] = useState<Donation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +50,7 @@ function DonationsWorkspace() {
     setLoading(true);
     setError(null);
     try {
-      const page = await listDonations(filter === "ALL" ? "ALL" : filter, { pageSize: 25 });
+      const page = await listDonations(filter === "ALL" ? "ALL" : filter, { pageSize: 50 });
       setItems(page.items);
     } catch (caught) {
       setError(describeError(caught));
@@ -68,13 +59,9 @@ function DonationsWorkspace() {
     }
   }, [filter]);
 
-  // State is set only in the promise continuation, never synchronously in the
-  // effect body — a synchronous setState here would cause a cascading render.
-  // The "loading" flag for a filter change is set by the change handler below,
-  // which is an event handler and may set state directly.
   useEffect(() => {
     let active = true;
-    listDonations(filter === "ALL" ? "ALL" : filter, { pageSize: 25 })
+    listDonations(filter === "ALL" ? "ALL" : filter, { pageSize: 50 })
       .then((page) => {
         if (!active) return;
         setItems(page.items);
@@ -92,24 +79,12 @@ function DonationsWorkspace() {
 
   if (!identity) return <LoadingState />;
 
-  async function act(action: () => Promise<void>, successMessage: string) {
-    setError(null);
-    setNotice(null);
-    try {
-      await action();
-      setNotice(successMessage);
-      await reload();
-    } catch (caught) {
-      setError(caught instanceof WorkflowError ? caught.message : describeError(caught));
-    }
-  }
-
   return (
     <>
       <h1 className="text-2xl font-bold text-temple-800">Donations</h1>
       <p className="mt-1 max-w-3xl text-ink-700">
-        Every donation is recorded by one person and verified by another before it can be published
-        to the public ledger. You cannot verify a record you created yourself.
+        Record temple donations with single-authority immediate publication. Every donation is
+        immediately visible on the public website, auditable, and immutable.
       </p>
 
       {can(identity, "donation:create") ? (
@@ -121,7 +96,7 @@ function DonationsWorkspace() {
       <section className="mt-8" aria-labelledby="ledger">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 id="ledger" className="text-xl font-semibold text-temple-800">
-            Donation records
+            Donation ledger
           </h2>
           <div>
             <label htmlFor="status-filter" className="mr-2 font-medium">
@@ -151,27 +126,27 @@ function DonationsWorkspace() {
             {notice}
           </p>
         ) : null}
-        {error ? (
-          <div className="mb-4">
-            <ErrorState message={error} />
-          </div>
-        ) : null}
 
-        {loading ? <LoadingState label="Loading donations" /> : null}
-        {!loading && items.length === 0 ? (
+        {error ? <ErrorState title="Could not load donations" message={error} /> : null}
+
+        {loading ? (
+          <LoadingState label="Loading donation records…" />
+        ) : items.length === 0 ? (
           <EmptyState
-            title="No donations in this list"
-            hint="Change the filter above, or record a new donation."
+            title="No donations recorded yet"
+            description="When a committee member records a donation, it will appear here and on the public website immediately."
           />
-        ) : null}
-
-        <ul className="space-y-4">
-          {items.map((donation) => (
-            <li key={donation.id}>
-              <DonationRow donation={donation} onAct={act} />
-            </li>
-          ))}
-        </ul>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-1">
+            {items.map((donation) => (
+              <DonationRow
+                key={donation.id}
+                donation={donation}
+                reload={reload}
+              />
+            ))}
+          </div>
+        )}
       </section>
     </>
   );
@@ -179,246 +154,163 @@ function DonationsWorkspace() {
 
 function DonationRow({
   donation,
-  onAct,
+  reload,
 }: {
   donation: Donation;
-  onAct: (action: () => Promise<void>, message: string) => Promise<void>;
+  reload: () => Promise<void>;
 }) {
   const { state: session } = useAdminSession();
   const identity = session.phase === "ready" ? session.identity : null;
   const [correcting, setCorrecting] = useState(false);
 
-  if (!identity) return null;
-
-  const context = {
-    kind: "donation" as const,
-    actorUid: identity.uid,
-    actorRole: identity.role,
-    actorStatus: identity.status,
-    createdBy: donation.createdBy,
-  };
-
-  const canSubmit = evaluateTransition(donation.status, "SUBMITTED", context).ok;
-  const verifyCheck = evaluateTransition(donation.status, "VERIFIED", context);
-  const canPublish = evaluateTransition(donation.status, "PUBLISHED", context).ok;
-  const isOwn = donation.createdBy === identity.uid;
+  const date = toDate(donation.occurredAt);
+  const formattedDate = date
+    ? date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+    : "Date unknown";
 
   return (
     <Card>
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="amount text-lg font-semibold text-temple-800">{donation.receiptNo}</p>
-        <StatusPill status={donation.status} />
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-sm font-bold text-temple-800">{donation.receiptNo}</span>
+            <StatusPill status={donation.status} />
+            {donation.supportingDocPath && (
+              <span className="rounded bg-sandal-200 px-2 py-0.5 text-xs font-semibold text-temple-900">
+                📷 Proof Attached
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-lg font-bold text-ink-900">{donation.donorName}</p>
+          <p className="text-sm text-ink-700">
+            {donation.purpose} · {donation.paymentMethod}
+          </p>
+          {donation.donorPhone && (
+            <p className="text-xs text-ink-500">Phone: {donation.donorPhone} (Private)</p>
+          )}
+        </div>
+        <div className="text-right">
+          <p className="text-xl font-bold text-temple-900">{formatPaise(donation.amountPaise)}</p>
+          <p className="text-xs text-ink-500">{formattedDate}</p>
+        </div>
       </div>
 
-      <p className="mt-1">
-        <span className="amount text-xl font-bold">{formatPaise(donation.amountPaise)}</span> ·{" "}
-        {donation.purpose}
-      </p>
-      <p className="text-ink-700">
-        {donation.donorName}{" "}
-        <span className="text-sm text-ink-500">
-          (shown publicly as: {DISPLAY_PREFERENCE_LABELS[donation.displayPreference]})
-        </span>
-      </p>
-      <p className="mt-1 text-sm text-ink-500">
-        {donation.paymentMethod} · recorded{" "}
-        {toDate(donation.createdAt)?.toLocaleString("en-IN") ?? "recently"}
-        {donation.revisionCount > 0 ? ` · corrected ${donation.revisionCount} time(s)` : ""}
-      </p>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-sandal-100 pt-3 text-xs text-ink-600">
+        <div>
+          <span>Display: {DISPLAY_PREFERENCE_LABELS[donation.displayPreference]}</span>
+          {donation.revisionCount > 0 && (
+            <span className="ml-2 font-semibold text-marigold-600">
+              · Corrected {donation.revisionCount} time(s)
+            </span>
+          )}
+        </div>
 
-      {donation.rejectionReason ? (
-        <p className="mt-2 rounded-lg bg-alert-100 p-2 text-alert-700">
-          Sent back: {donation.rejectionReason}
-        </p>
-      ) : null}
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        {canSubmit ? (
-          <Button
-            onClick={() =>
-              void onAct(
-                () => submitDonation(identity, donation.id),
-                `${donation.receiptNo} submitted for verification.`,
-              )
-            }
-          >
-            Submit for verification
+        {can(identity, "donation:correct") && (
+          <Button variant="secondary" size="small" onClick={() => setCorrecting((v) => !v)}>
+            {correcting ? "Cancel Correction" : "Correct Record"}
           </Button>
-        ) : null}
-
-        {donation.status === "SUBMITTED" ? (
-          verifyCheck.ok ? (
-            <>
-              <Button
-                onClick={() =>
-                  void onAct(
-                    () => verifyDonation(identity, donation.id),
-                    `${donation.receiptNo} verified.`,
-                  )
-                }
-              >
-                Verify this record
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => {
-                  const reason = window.prompt("Why is this being sent back?");
-                  if (!reason?.trim()) return;
-                  void onAct(
-                    () => rejectDonation(identity, donation.id, reason),
-                    `${donation.receiptNo} sent back to the creator.`,
-                  );
-                }}
-              >
-                Send back
-              </Button>
-            </>
-          ) : (
-            <p className="rounded-lg bg-marigold-100 p-2 text-marigold-600">
-              {isOwn
-                ? "You recorded this donation, so another committee member must verify it."
-                : verifyCheck.reason}
-            </p>
-          )
-        ) : null}
-
-        {canPublish ? (
-          <Button
-            onClick={() =>
-              void onAct(
-                () => publishDonation(identity, donation.id),
-                `${donation.receiptNo} published to the public ledger.`,
-              )
-            }
-          >
-            Publish publicly
-          </Button>
-        ) : null}
-
-        {donation.status === "PUBLISHED" && can(identity, "donation:publish") ? (
-          // Repair action for the rare case where the internal record was
-          // published but writing the public copy failed.
-          <Button
-            variant="quiet"
-            onClick={() =>
-              void onAct(
-                () => publishDonation(identity, donation.id),
-                `Public copy of ${donation.receiptNo} re-synced.`,
-              )
-            }
-          >
-            Re-sync public copy
-          </Button>
-        ) : null}
-
-        {donation.status === "PUBLISHED" && can(identity, "donation:correct") ? (
-          <Button variant="secondary" onClick={() => setCorrecting((value) => !value)}>
-            {correcting ? "Cancel correction" : "Correct this record"}
-          </Button>
-        ) : null}
+        )}
       </div>
 
-      {correcting ? (
-        <CorrectionForm
-          donation={donation}
-          onAct={onAct}
-          onClose={() => setCorrecting(false)}
-        />
-      ) : null}
+      {correcting && identity && (
+        <CorrectionForm donation={donation} identity={identity} reload={reload} onDone={() => setCorrecting(false)} />
+      )}
     </Card>
   );
 }
 
 function CorrectionForm({
   donation,
-  onAct,
-  onClose,
+  identity,
+  reload,
+  onDone,
 }: {
   donation: Donation;
-  onAct: (action: () => Promise<void>, message: string) => Promise<void>;
-  onClose: () => void;
+  identity: AdminIdentity;
+  reload: () => Promise<void>;
+  onDone: () => void;
 }) {
-  const { state: session } = useAdminSession();
-  const identity = session.phase === "ready" ? session.identity : null;
-  const [amount, setAmount] = useState(String(donation.amountPaise / 100));
+  const [amount, setAmount] = useState((donation.amountPaise / 100).toString());
+  const [purpose, setPurpose] = useState(donation.purpose);
   const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!identity) return null;
-
   return (
-    <div className="mt-4 rounded-xl border-2 border-marigold-500 bg-marigold-100 p-4">
-      <h3 className="font-semibold text-temple-800">Correct a published record</h3>
-      <p className="mt-1 text-sm text-ink-700">
-        The current figure of <strong>{formatPaise(donation.amountPaise)}</strong> will be written
-        permanently into the correction history before it changes. It will also appear in the
-        public corrections register. This cannot be undone or hidden.
+    <form
+      className="mt-4 rounded-xl border border-alert-300 bg-alert-50 p-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (busy) return;
+        setBusy(true);
+        setError(null);
+        try {
+          await correctDonation(
+            identity,
+            donation.id,
+            {
+              amountPaise: rupeesToPaise(amount),
+              purpose,
+            },
+            reason,
+          );
+          await reload();
+          onDone();
+        } catch (caught) {
+          setError(caught instanceof WorkflowError ? caught.message : describeError(caught));
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <h3 className="font-bold text-alert-900">Correct Published Donation</h3>
+      <p className="text-xs text-alert-700 mt-1">
+        This creates an immutable witnessed revision record. The previous amount and reason will be saved permanently.
       </p>
 
-      {/*
-        noValidate: validation is handled in code so that errors are rendered
-        into a role="alert" region. Native browser bubbles are inconsistently
-        announced by screen readers and disappear on the next interaction.
-      */}
-      <form
-        className="mt-3"
-        noValidate
-        onSubmit={(event) => {
-          event.preventDefault();
-          setError(null);
-          let paise: number;
-          try {
-            paise = rupeesToPaise(amount);
-          } catch (caught) {
-            setError(caught instanceof Error ? caught.message : "Invalid amount");
-            return;
-          }
-          if (!reason.trim()) {
-            setError("A reason is required — it is published for everyone to read.");
-            return;
-          }
-          // Close the form once the correction lands, but leave the success
-          // notice for the treasurer to read — it must not be overwritten.
-          void onAct(
-            () => correctDonation(identity, donation.id, { amountPaise: paise }, reason.trim()),
-            `${donation.receiptNo} corrected. The change is now in the public corrections register.`,
-          ).then(onClose);
-        }}
-      >
-        <Field label="Corrected amount (₹)" htmlFor={`amt-${donation.id}`} required>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <Field label="Corrected Amount (₹)" htmlFor={`c-amt-${donation.id}`} required>
           <input
-            id={`amt-${donation.id}`}
+            id={`c-amt-${donation.id}`}
             className={inputClass}
             value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            inputMode="decimal"
+            onChange={(e) => setAmount(e.target.value)}
             required
           />
         </Field>
-        <Field
-          label="Reason for the correction"
-          htmlFor={`why-${donation.id}`}
-          hint="This is shown publicly. Explain plainly, as a villager would understand it."
+
+        <Field label="Corrected Purpose" htmlFor={`c-purp-${donation.id}`} required>
+          <input
+            id={`c-purp-${donation.id}`}
+            className={inputClass}
+            value={purpose}
+            onChange={(e) => setPurpose(e.target.value)}
+            required
+          />
+        </Field>
+      </div>
+
+      <Field label="Reason for correction" htmlFor={`c-reason-${donation.id}`} required hint="Explain why the figure changed. This is saved permanently.">
+        <textarea
+          id={`c-reason-${donation.id}`}
+          className={`${inputClass} min-h-16`}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
           required
-        >
-          <textarea
-            id={`why-${donation.id}`}
-            className={`${inputClass} min-h-20`}
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            required
-          />
-        </Field>
-        {error ? (
-          <p role="alert" className="mb-3 font-medium text-alert-700">
-            {error}
-          </p>
-        ) : null}
-        <Button type="submit" variant="danger">
-          Record this correction permanently
+        />
+      </Field>
+
+      {error && <p className="mt-2 text-xs font-bold text-alert-700">{error}</p>}
+
+      <div className="mt-3 flex justify-end gap-2">
+        <Button variant="secondary" size="small" type="button" onClick={onDone}>
+          Cancel
         </Button>
-      </form>
-    </div>
+        <Button variant="danger" size="small" type="submit" disabled={busy}>
+          {busy ? "Saving…" : "Record Correction"}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -429,6 +321,8 @@ function NewDonationForm({ reload }: { reload: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [supportingDocPath, setSupportingDocPath] = useState<string>("");
+
   const [form, setForm] = useState({
     donorName: "",
     donorPhone: "",
@@ -472,7 +366,7 @@ function NewDonationForm({ reload }: { reload: () => Promise<void> }) {
             setError(null);
             setSuccess(null);
             try {
-              const result = await createDonation(identity!, {
+              const result = await createDonation(identity, {
                 donorName: form.donorName,
                 donorPhone: form.donorPhone || null,
                 displayPreference: form.displayPreference,
@@ -481,12 +375,13 @@ function NewDonationForm({ reload }: { reload: () => Promise<void> }) {
                 fundId: form.fundId,
                 occurredAt: new Date(form.occurredAt),
                 paymentMethod: form.paymentMethod,
-                submitImmediately: true,
+                supportingDocPath,
               });
               setSuccess(
-                `Recorded receipt ${result.receiptNo}. It now needs a second committee member to verify it.`,
+                `Recorded and published donation ${result.receiptNo}. It is now visible on the public website.`,
               );
               setForm((previous) => ({ ...previous, donorName: "", donorPhone: "", amount: "" }));
+              setSupportingDocPath("");
               await reload();
             } catch (caught) {
               setError(caught instanceof Error ? caught.message : describeError(caught));
@@ -585,15 +480,25 @@ function NewDonationForm({ reload }: { reload: () => Promise<void> }) {
             </Field>
           </div>
 
+          <div className="mt-4">
+            <ProofUpload
+              kind="donations"
+              onUploaded={(path) => setSupportingDocPath(path)}
+              label="Upload Payment Proof / Receipt (Optional)"
+            />
+          </div>
+
           {error ? (
-            <p role="alert" className="mb-4 rounded-lg bg-alert-100 p-3 font-medium text-alert-700">
+            <p role="alert" className="mt-4 rounded-lg bg-alert-100 p-3 font-medium text-alert-700">
               {error}
             </p>
           ) : null}
 
-          <Button type="submit" disabled={busy}>
-            {busy ? "Recording…" : "Record and submit for verification"}
-          </Button>
+          <div className="mt-4 flex justify-end">
+            <Button type="submit" disabled={busy}>
+              {busy ? "Publishing…" : "Submit & Publish Donation"}
+            </Button>
+          </div>
         </form>
       ) : null}
     </Card>

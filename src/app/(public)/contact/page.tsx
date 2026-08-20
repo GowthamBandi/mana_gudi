@@ -12,7 +12,7 @@ export default function ContactPage() {
   return (
     <>
       <nav aria-label="Breadcrumb" className="mb-4 text-sm">
-        <Link href="/">Home</Link> <span aria-hidden="true">›</span> Contact
+        <Link href="/" prefetch={false}>Home</Link> <span aria-hidden="true">›</span> Contact
       </nav>
 
       <h1 className="text-3xl font-bold text-temple-800">Contact the temple</h1>
@@ -21,7 +21,7 @@ export default function ContactPage() {
         <Card>
           <h2 className="text-lg font-semibold text-temple-700">Where we are</h2>
           <address className="mt-2 not-italic text-lg">
-            Sri Temple Seva
+            Mana Gudi
             <br />
             Temple Street, Village Centre
             <br />
@@ -37,24 +37,24 @@ export default function ContactPage() {
           </p>
           <p className="mt-3">
             To raise something in writing, use the{" "}
-            <Link href="/feedback">complaints and suggestions form</Link> — you will get a tracking
-            number.
+            <Link href="/feedback" prefetch={false}>complaints and suggestions form</Link> — you will get a tracking
+            number and can check progress online.
           </p>
         </Card>
 
         <Card>
-          <h2 className="text-lg font-semibold text-temple-700">Questions about a receipt</h2>
-          <p className="mt-2 text-lg">
-            If you have a receipt and want to confirm it is genuine, you can check it yourself at
-            any time on the <Link href="/verify">verify a receipt</Link> page. No account needed.
+          <h2 className="text-xl font-semibold text-temple-800">Donation receipt queries</h2>
+          <p className="mt-2 text-ink-700">
+            If you made a donation and need to verify your receipt number, you can look it up at
+            any time on the <Link href="/verify" prefetch={false}>verify a receipt</Link> page. No account needed.
           </p>
         </Card>
 
         <Card>
-          <h2 className="text-lg font-semibold text-temple-700">Volunteering</h2>
-          <p className="mt-2 text-lg">
-            To help with festivals, annadanam or temple upkeep, see the{" "}
-            <Link href="/volunteer">volunteer page</Link>.
+          <h2 className="text-xl font-semibold text-temple-800">Seva and volunteering</h2>
+          <p className="mt-2 text-ink-700">
+            To offer seva during festivals or daily temple operations, register your name on the{" "}
+            <Link href="/volunteer" prefetch={false}>volunteer page</Link>.
           </p>
         </Card>
       </div>

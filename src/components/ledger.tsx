@@ -218,7 +218,7 @@ function ReferenceLookup({
         </p>
         <p className="mt-1 text-ink-700">
           It may not have been published yet. You can{" "}
-          <Link href={`/verify?ref=${encodeURIComponent(reference)}`}>check this receipt</Link> for
+          <Link href={`/verify?ref=${encodeURIComponent(reference)}`} prefetch={false}>check this receipt</Link> for
           more detail.
         </p>
       </div>
@@ -234,13 +234,15 @@ function ReferenceLookup({
         {donation.purpose} · {donation.displayName}
       </p>
       <p className="mt-1">
-        <Link href={`/verify?ref=${encodeURIComponent(donation.receiptNo)}`}>
+        <Link href={`/verify?ref=${encodeURIComponent(donation.receiptNo)}`} prefetch={false}>
           Verify this receipt →
         </Link>
       </p>
     </div>
   );
 }
+
+import { useLanguage } from "@/lib/i18n/context";
 
 function LedgerRowsView({
   kind,
@@ -259,12 +261,8 @@ function LedgerRowsView({
   hasMore: boolean;
   onLoadMore: () => void;
 }) {
+  const { t } = useLanguage();
 
-  /**
-   * Text search runs over the rows already fetched. It filters only fields that
-   * are public by construction, so it cannot surface a donor's phone number
-   * even if one somehow reached the projection.
-   */
   const visible = useMemo(() => {
     const needle = search.trim().toLowerCase();
     if (!needle) return rows;
@@ -276,30 +274,31 @@ function LedgerRowsView({
     });
   }, [rows, search]);
 
-  const label = kind === "donations" ? "donations" : "expenses";
-
+  const label = kind === "donations" ? t.statDonations : t.statExpenses;
   const reference = normaliseReference(search);
 
   return (
     <div>
-      {/*
-        Searching by receipt number must work even when that receipt is far down
-        the register. Client-side filtering alone would tell a devotee their
-        donation "does not exist" simply because it had not been paged in yet —
-        precisely the doubt this site exists to remove.
-      */}
       {reference ? <ReferenceLookup reference={reference} kind={kind} /> : null}
 
       {error ? <ErrorState message={error} /> : null}
-      {loading && rows.length === 0 ? <LoadingState label={`Loading ${label}`} /> : null}
+      {loading && rows.length === 0 ? <LoadingState label={t.loadingLabel} /> : null}
 
       {!loading && !error && visible.length === 0 ? (
         <EmptyState
-          title={search ? `No ${label} match "${search}"` : `No ${label} published yet`}
+          title={
+            search
+              ? `No ${label.toLowerCase()} match "${search}"`
+              : kind === "donations"
+              ? t.emptyDonationsTitle
+              : t.emptyExpensesTitle
+          }
           hint={
             search
               ? "Try a shorter search, or clear the filters."
-              : "Records appear here once the committee has verified and published them."
+              : kind === "donations"
+              ? t.emptyDonationsHint
+              : t.emptyExpensesHint
           }
         />
       ) : null}
@@ -314,8 +313,44 @@ function LedgerRowsView({
             horizontally, and a scrollable region that cannot be focused is
             unreachable for someone navigating by keyboard.
           */}
+          {/* Mobile card list on narrow viewports */}
+          <div className="grid gap-3 sm:hidden">
+            {visible.map((row) => {
+              const when = toDate(row.occurredAt);
+              const refNo = isDonation(row) ? row.receiptNo : row.voucherNo;
+              const title = isDonation(row) ? row.displayName : row.description;
+              const category = isDonation(row) ? row.purpose : row.category;
+
+              return (
+                <Card key={row.id} className="p-4">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-mono text-xs font-bold text-temple-800">{refNo}</span>
+                    <span className="amount font-bold text-temple-900 text-base">
+                      {formatPaise(row.amountPaise)}
+                    </span>
+                  </div>
+                  <p className="mt-1 font-semibold text-ink-900 text-sm">{title}</p>
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-ink-500 border-t border-sandal-100 pt-2">
+                    <span>{category} · {row.fundName}</span>
+                    {when && (
+                      <time dateTime={when.toISOString()}>
+                        {when.toLocaleDateString("en-IN", { dateStyle: "medium" })}
+                      </time>
+                    )}
+                  </div>
+                  {row.corrected && (
+                    <span className="mt-2 inline-block rounded bg-marigold-100 px-2 py-0.5 text-[10px] font-bold text-marigold-800">
+                      Witnessed Correction Record
+                    </span>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+
+          {/* Desktop table view on sm+ screens */}
           <div
-            className="overflow-x-auto"
+            className="hidden sm:block overflow-x-auto"
             tabIndex={0}
             role="region"
             aria-label={`Published temple ${label} table`}

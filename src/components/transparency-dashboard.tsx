@@ -56,63 +56,66 @@ function BreakdownBars({
   );
 }
 
+import { useLanguage } from "@/lib/i18n/context";
+
 export function TransparencyDashboard() {
   const stats = useAsync(() => publicStats("all-time"), []);
   const funds = useAsync(() => publicFunds(), []);
   const corrections = useAsync(() => publicCorrections(5), []);
+  const { t } = useLanguage();
 
   return (
     <div className="mt-8 space-y-10">
       <section aria-labelledby="totals">
-        <SectionHeading title="The headline numbers" />
+        <SectionHeading title={t.homeAccountsHeading} />
         <h2 id="totals" className="sr-only">
           Totals
         </h2>
 
-        {stats.phase === "loading" ? <LoadingState label="Loading totals" /> : null}
+        {stats.phase === "loading" ? <LoadingState label={t.loadingLabel} /> : null}
         {stats.phase === "error" ? (
           <ErrorState message={stats.message} onRetry={stats.reload} />
         ) : null}
-        {stats.phase === "ready" && !stats.data ? (
+        {stats.phase === "ready" && (!stats.data || (stats.data.donationCount === 0 && stats.data.expenseCount === 0)) ? (
           <EmptyState
-            title="No accounts have been published yet"
-            hint="Figures appear here as soon as the committee publishes verified records."
+            title={t.emptyAccountsTitle}
+            hint={t.emptyAccountsHint}
           />
         ) : null}
-        {stats.phase === "ready" && stats.data ? (
+        {stats.phase === "ready" && stats.data && (stats.data.donationCount > 0 || stats.data.expenseCount > 0) ? (
           <>
             {/* Hints sit inside each <dd>; a <dl> may only contain dt/dd groups. */}
             <dl className="grid gap-4 sm:grid-cols-3">
               <Card>
-                <dt className="font-semibold text-ink-500">Total donations received</dt>
+                <dt className="font-semibold text-ink-500 text-sm sm:text-base">{t.statDonations}</dt>
                 <dd className="mt-1">
-                  <span className="amount block text-3xl font-bold text-verify-700">
+                  <span className="amount block text-2xl sm:text-3xl font-bold text-verify-700 break-words">
                     {formatPaise(stats.data.totalDonationsPaise)}
                   </span>
-                  <span className="mt-1 block text-sm text-ink-500">
-                    from {stats.data.donationCount} published receipts
+                  <span className="mt-1 block text-xs sm:text-sm text-ink-500">
+                    {stats.data.donationCount} {t.statReceiptsCount}
                   </span>
                 </dd>
               </Card>
               <Card>
-                <dt className="font-semibold text-ink-500">Total money spent</dt>
+                <dt className="font-semibold text-ink-500 text-sm sm:text-base">{t.statExpenses}</dt>
                 <dd className="mt-1">
-                  <span className="amount block text-3xl font-bold text-temple-700">
+                  <span className="amount block text-2xl sm:text-3xl font-bold text-temple-700 break-words">
                     {formatPaise(stats.data.totalExpensesPaise)}
                   </span>
-                  <span className="mt-1 block text-sm text-ink-500">
-                    across {stats.data.expenseCount} published vouchers
+                  <span className="mt-1 block text-xs sm:text-sm text-ink-500">
+                    {stats.data.expenseCount} {t.statVouchersCount}
                   </span>
                 </dd>
               </Card>
               <Card>
-                <dt className="font-semibold text-ink-500">Balance held by the temple</dt>
+                <dt className="font-semibold text-ink-500 text-sm sm:text-base">{t.statBalance}</dt>
                 <dd className="mt-1">
-                  <span className="amount block text-3xl font-bold text-temple-800">
+                  <span className="amount block text-2xl sm:text-3xl font-bold text-temple-800 break-words">
                     {formatPaise(stats.data.balancePaise)}
                   </span>
-                  <span className="mt-1 block text-sm text-ink-500">
-                    donations received minus money spent
+                  <span className="mt-1 block text-xs sm:text-sm text-ink-500">
+                    {t.statAllFunds}
                   </span>
                 </dd>
               </Card>
@@ -120,14 +123,14 @@ export function TransparencyDashboard() {
 
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <BreakdownBars
-                title="What donations were given for"
+                title={t.statDonations}
                 data={stats.data.byPurpose}
-                emptyHint="No donations published yet."
+                emptyHint={t.emptyDonationsTitle}
               />
               <BreakdownBars
-                title="What money was spent on"
+                title={t.statExpenses}
                 data={stats.data.byCategory}
-                emptyHint="No expenses published yet."
+                emptyHint={t.emptyExpensesTitle}
               />
             </div>
           </>
@@ -135,10 +138,10 @@ export function TransparencyDashboard() {
       </section>
 
       <section aria-labelledby="funds">
-        <h2 id="funds" className="mb-5 text-2xl font-semibold text-temple-800">
+        <h2 id="funds" className="mb-5 text-xl sm:text-2xl font-semibold text-temple-800">
           Temple funds
         </h2>
-        <p className="mb-4 max-w-3xl text-ink-700">
+        <p className="mb-4 max-w-3xl text-sm sm:text-base text-ink-700">
           Money given for a specific purpose is kept in its own fund and may only be spent on that
           purpose.
         </p>
@@ -150,60 +153,96 @@ export function TransparencyDashboard() {
         {funds.phase === "ready" && funds.data.length === 0 ? (
           <EmptyState title="No funds have been set up yet" />
         ) : null}
-        {/* The table below is focusable because it scrolls sideways on a phone. */}
+
+        {/* Mobile-first stacked cards on small screens */}
         {funds.phase === "ready" && funds.data.length > 0 ? (
-          <div
-            className="overflow-x-auto"
-            tabIndex={0}
-            role="region"
-            aria-label="Temple fund balances table"
-          >
-            <table className="w-full min-w-[36rem] border-collapse text-left">
-              <caption className="sr-only">Balance of each temple fund</caption>
-              <thead>
-                <tr className="border-b-2 border-sandal-300">
-                  <th scope="col" className="py-2 pr-4">
-                    Fund
-                  </th>
-                  <th scope="col" className="py-2 pr-4 text-right">
-                    Received
-                  </th>
-                  <th scope="col" className="py-2 pr-4 text-right">
-                    Spent
-                  </th>
-                  <th scope="col" className="py-2 text-right">
-                    Balance
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {funds.data.map((fund) => (
-                  <tr key={fund.id} className="border-b border-sandal-200">
-                    <th scope="row" className="py-3 pr-4 font-medium">
-                      {fund.name}
-                      {fund.restricted ? (
-                        <span className="ml-2 rounded bg-marigold-100 px-2 py-0.5 text-xs font-semibold text-marigold-600">
-                          restricted use
-                        </span>
-                      ) : null}
-                      <span className="block text-sm font-normal text-ink-500">
-                        {fund.description}
+          <>
+            <div className="grid gap-3 sm:hidden">
+              {funds.data.map((fund) => (
+                <Card key={fund.id} className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h3 className="font-bold text-temple-800 text-base">{fund.name}</h3>
+                      <p className="mt-0.5 text-xs text-ink-500">{fund.description}</p>
+                    </div>
+                    {fund.restricted && (
+                      <span className="shrink-0 rounded bg-marigold-100 px-2 py-0.5 text-[10px] font-bold text-marigold-800">
+                        Restricted
                       </span>
+                    )}
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 border-t border-sandal-200 pt-3 text-center text-xs">
+                    <div>
+                      <span className="block text-ink-500 font-medium">Received</span>
+                      <Amount paise={fund.totalInPaise} className="font-bold text-ink-900 mt-0.5 block" />
+                    </div>
+                    <div>
+                      <span className="block text-ink-500 font-medium">Spent</span>
+                      <Amount paise={fund.totalOutPaise} className="font-bold text-ink-900 mt-0.5 block" />
+                    </div>
+                    <div>
+                      <span className="block text-ink-500 font-medium">Balance</span>
+                      <Amount paise={fund.balancePaise} className="font-bold text-temple-800 mt-0.5 block" />
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+
+            {/* Desktop table view on sm+ screens */}
+            <div
+              className="hidden sm:block overflow-x-auto"
+              tabIndex={0}
+              role="region"
+              aria-label="Temple fund balances table"
+            >
+              <table className="w-full min-w-[36rem] border-collapse text-left">
+                <caption className="sr-only">Balance of each temple fund</caption>
+                <thead>
+                  <tr className="border-b-2 border-sandal-300">
+                    <th scope="col" className="py-2 pr-4">
+                      Fund
                     </th>
-                    <td className="py-3 pr-4 text-right">
-                      <Amount paise={fund.totalInPaise} />
-                    </td>
-                    <td className="py-3 pr-4 text-right">
-                      <Amount paise={fund.totalOutPaise} />
-                    </td>
-                    <td className="py-3 text-right">
-                      <Amount paise={fund.balancePaise} className="text-temple-800" />
-                    </td>
+                    <th scope="col" className="py-2 pr-4 text-right">
+                      Received
+                    </th>
+                    <th scope="col" className="py-2 pr-4 text-right">
+                      Spent
+                    </th>
+                    <th scope="col" className="py-2 text-right">
+                      Balance
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {funds.data.map((fund) => (
+                    <tr key={fund.id} className="border-b border-sandal-200">
+                      <th scope="row" className="py-3 pr-4 font-medium">
+                        {fund.name}
+                        {fund.restricted ? (
+                          <span className="ml-2 rounded bg-marigold-100 px-2 py-0.5 text-xs font-semibold text-marigold-600">
+                            restricted use
+                          </span>
+                        ) : null}
+                        <span className="block text-sm font-normal text-ink-500">
+                          {fund.description}
+                        </span>
+                      </th>
+                      <td className="py-3 pr-4 text-right">
+                        <Amount paise={fund.totalInPaise} />
+                      </td>
+                      <td className="py-3 pr-4 text-right">
+                        <Amount paise={fund.totalOutPaise} />
+                      </td>
+                      <td className="py-3 text-right">
+                        <Amount paise={fund.balancePaise} className="text-temple-800" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         ) : null}
       </section>
 
@@ -218,7 +257,7 @@ export function TransparencyDashboard() {
               Search and filter every published donation by purpose or fund.
             </p>
             <p className="mt-3">
-              <Link href="/transparency/donations">Open the donation register</Link>
+              <Link href="/transparency/donations" prefetch={false}>Open the donation register</Link>
             </p>
           </Card>
           <Card>
@@ -227,7 +266,7 @@ export function TransparencyDashboard() {
               See what was bought or paid for, from which fund, and when.
             </p>
             <p className="mt-3">
-              <Link href="/transparency/expenses">Open the expense register</Link>
+              <Link href="/transparency/expenses" prefetch={false}>Open the expense register</Link>
             </p>
           </Card>
           <Card>
@@ -236,7 +275,7 @@ export function TransparencyDashboard() {
               Type a receipt number to confirm the donation is really in the accounts.
             </p>
             <p className="mt-3">
-              <Link href="/verify">Verify a receipt</Link>
+              <Link href="/verify" prefetch={false}>Verify a receipt</Link>
             </p>
           </Card>
         </div>
@@ -295,7 +334,7 @@ export function TransparencyDashboard() {
               })}
             </ul>
             <p className="mt-4">
-              <Link href="/transparency/corrections">See the full corrections register</Link>
+              <Link href="/transparency/corrections" prefetch={false}>See the full corrections register</Link>
             </p>
           </>
         ) : null}

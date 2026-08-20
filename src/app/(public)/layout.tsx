@@ -5,7 +5,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
   return (
     <>
       <SiteHeader />
-      <main id="main" className="mx-auto max-w-6xl px-4 py-8">
+      <main id="main" className="mx-auto w-full min-w-0 max-w-6xl px-4 sm:px-6 py-6 sm:py-8">
         {children}
       </main>
       <SiteFooter />

@@ -128,30 +128,29 @@ export function evaluateTransition(
       : deny("MISSING_PERMISSION", "Only a super administrator may archive records");
   }
 
-  // ---- editing a draft in place --------------------------------------------
+  // ---- direct publish upon creation (single authority model) ----------------
+  if ((from === "DRAFT" || from === "SUBMITTED" || from === "VERIFIED") && to === "PUBLISHED") {
+    return can(identity(ctx), permission(kind, "create")) || can(identity(ctx), permission(kind, "publish"))
+      ? { ok: true }
+      : deny("MISSING_PERMISSION", "You may not publish financial records");
+  }
+
+  // ---- legacy draft & submission paths (preserved for historical transitions) ----
   if (from === "DRAFT" && to === "DRAFT") {
     return can(identity(ctx), permission(kind, "create"))
       ? { ok: true }
       : deny("MISSING_PERMISSION", "You may not edit financial records");
   }
 
-  // ---- submit for verification ---------------------------------------------
   if (from === "DRAFT" && to === "SUBMITTED") {
     return can(identity(ctx), permission(kind, "submit"))
       ? { ok: true }
-      : deny("MISSING_PERMISSION", "You may not submit records for verification");
+      : deny("MISSING_PERMISSION", "You may not submit records");
   }
 
-  // ---- second-person verification ------------------------------------------
   if (from === "SUBMITTED" && to === "VERIFIED") {
-    if (!can(identity(ctx), permission(kind, "verify"))) {
+    if (!can(identity(ctx), permission(kind, "verify")) && !can(identity(ctx), permission(kind, "publish"))) {
       return deny("MISSING_PERMISSION", "You may not verify financial records");
-    }
-    if (ctx.actorUid === ctx.createdBy) {
-      return deny(
-        "SELF_APPROVAL",
-        "A record must be verified by someone other than the person who created it",
-      );
     }
     return { ok: true };
   }

@@ -89,6 +89,16 @@ service firebase.storage {
       allow write: if isFinance() && isDocument() && underSize(10);
     }
 
+    match /proofs/donations/{allPaths=**} {
+      allow read: if canReadFinancial();
+      allow write: if isFinance() && isDocument() && underSize(10);
+    }
+
+    match /proofs/expenses/{allPaths=**} {
+      allow read: if canReadFinancial();
+      allow write: if isFinance() && isDocument() && underSize(10);
+    }
+
     match /hundi/{allPaths=**} {
       allow read: if canReadFinancial();
       allow write: if isFinance() && isDocument() && underSize(10);

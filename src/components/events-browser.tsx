@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { formatPaise } from "@/lib/domain/money";
 import { publicEvent, upcomingEvents } from "@/lib/services/public-data";
@@ -11,16 +10,23 @@ import { useAsync } from "@/lib/use-async";
 import { Button, Card, EmptyState, ErrorState, Field, LoadingState, inputClass } from "./ui";
 
 export function EventsBrowser() {
-  const params = useSearchParams();
-  const selectedId = params.get("id");
+  const [selectedId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return new URLSearchParams(window.location.search).get("id");
+    }
+    return null;
+  });
 
   return selectedId ? <EventDetail id={selectedId} /> : <EventList />;
 }
 
+import { useLanguage } from "@/lib/i18n/context";
+
 function EventList() {
   const state = useAsync(() => upcomingEvents(30), []);
+  const { t } = useLanguage();
 
-  if (state.phase === "loading") return <LoadingState label="Loading events" />;
+  if (state.phase === "loading") return <LoadingState label={t.loadingLabel} />;
   if (state.phase === "error")
     return (
       <div className="mt-6">
@@ -31,8 +37,8 @@ function EventList() {
     return (
       <div className="mt-6">
         <EmptyState
-          title="No events are scheduled at the moment"
-          hint="Festival and pooja dates appear here as soon as the committee fixes them."
+          title={t.emptyEventsTitle}
+          hint={t.emptyEventsHint}
         />
       </div>
     );
@@ -59,7 +65,7 @@ function EventCard({ event }: { event: TempleEvent }) {
         {event.deity ? ` · ${event.deity}` : ""}
       </p>
       <h2 className="mt-1 text-xl font-semibold text-temple-800">
-        <Link href={`/events?id=${event.id}`}>{event.title}</Link>
+        <Link href={`/events?id=${event.id}`} prefetch={false}>{event.title}</Link>
       </h2>
       {start ? (
         <p className="mt-1 font-medium text-ink-900">
@@ -84,7 +90,7 @@ function EventCard({ event }: { event: TempleEvent }) {
               Registration full
             </span>
           ) : (
-            <Link href={`/events?id=${event.id}`}>Register →</Link>
+            <Link href={`/events?id=${event.id}`} prefetch={false}>Register →</Link>
           )
         ) : null}
       </div>
@@ -110,7 +116,7 @@ function EventDetail({ id }: { id: string }) {
           hint="It may have been removed. See all upcoming events instead."
         />
         <p className="mt-4">
-          <Link href="/events">← Back to all events</Link>
+          <Link href="/events" prefetch={false}>← Back to all events</Link>
         </p>
       </div>
     );
@@ -123,7 +129,7 @@ function EventDetail({ id }: { id: string }) {
   return (
     <div className="mt-6">
       <p className="mb-4">
-        <Link href="/events">← All events</Link>
+        <Link href="/events" prefetch={false}>← All events</Link>
       </p>
 
       <article>

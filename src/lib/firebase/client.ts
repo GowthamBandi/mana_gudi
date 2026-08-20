@@ -19,9 +19,9 @@ import {
 } from "firebase/auth";
 import {
   connectFirestoreEmulator,
+  getFirestore,
   initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
+  memoryLocalCache,
   type Firestore,
 } from "firebase/firestore";
 import { connectStorageEmulator, getStorage, type FirebaseStorage } from "firebase/storage";
@@ -40,12 +40,17 @@ export function firebaseApp(): FirebaseApp {
 export function db(): Firestore {
   if (cachedDb) return cachedDb;
 
-  // A persistent cache keeps the public transparency pages readable on the
-  // patchy mobile connections these villagers actually have, and cuts repeat
-  // Firestore reads (and therefore cost) on navigation.
-  cachedDb = initializeFirestore(firebaseApp(), {
-    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-  });
+  try {
+    // Use memory cache to avoid IndexedDB stalls that cause infinite loading
+    // on first visit. Persistent cache (persistentLocalCache + multiTabManager)
+    // can hang indefinitely when IndexedDB setup is slow or blocked.
+    cachedDb = initializeFirestore(firebaseApp(), {
+      localCache: memoryLocalCache(),
+    });
+  } catch {
+    // Firestore already initialized — retrieve the existing instance.
+    cachedDb = getFirestore(firebaseApp());
+  }
 
   if (useEmulators && !emulatorsConnected) {
     connectFirestoreEmulator(cachedDb, "127.0.0.1", 8080);

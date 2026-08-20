@@ -60,6 +60,7 @@ export interface Expense {
   createdAt: TimestampLike;
   verifiedBy: string | null;
   publishedBy: string | null;
+  publishedAt?: TimestampLike | null;
   rejectionReason: string | null;
   lastCorrectionReason: string | null;
   revisionCount: number;
@@ -228,6 +229,33 @@ export interface Feedback {
   contactPhone: string | null;
   status: "SUBMITTED" | "UNDER_REVIEW" | "ACTION_TAKEN" | "RESOLVED" | "CLOSED";
   createdAt: TimestampLike;
+}
+
+export interface GalleryItem {
+  id: string;
+  title: string;
+  caption: string;
+  imageUrl: string;
+  category: string;
+  publishedAt: TimestampLike;
+}
+
+export interface VideoItem {
+  id: string;
+  title: string;
+  description: string;
+  videoUrl: string;
+  youtubeId?: string;
+  publishedAt: TimestampLike;
+}
+
+export interface TempleDocument {
+  id: string;
+  title: string;
+  category: string;
+  fileUrl: string;
+  fileSizeLabel: string;
+  publishedAt: TimestampLike;
 }
 
 /** Converts a Firestore Timestamp or a Date into a Date, whichever we got. */

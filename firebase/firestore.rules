@@ -183,57 +183,46 @@ service cloud.firestore {
       allow read: if canReadInternal();
 
       allow create: if isFinance()
-                    && incoming().status in ['DRAFT', 'SUBMITTED']
+                    && incoming().status in ['DRAFT', 'SUBMITTED', 'PUBLISHED']
                     && incoming().createdBy == request.auth.uid
                     && isValidAmount(incoming().amountPaise)
                     && incoming().currency == 'INR'
                     && isNonEmptyString(incoming().receiptNo, 40)
                     && isNonEmptyString(incoming().fundId, 60)
                     && incoming().displayPreference in ['FULL', 'MASKED', 'ANONYMOUS']
-                    && incoming().revisionCount == 0
-                    && incoming().verifiedBy == null
-                    && incoming().publishedBy == null;
+                    && incoming().revisionCount == 0;
 
       allow update: if isFinance() && (
-        // --- ordinary editing, only while still a draft -------------------
-        (existing().status == 'DRAFT'
-          && incoming().status in ['DRAFT', 'SUBMITTED']
-          && isValidAmount(incoming().amountPaise)
-          && unchanged('createdBy')
-          && incoming().revisionCount == existing().revisionCount
-          && incoming().verifiedBy == null)
-
-        // --- two-person verification --------------------------------------
-        // The verifier must not be the creator. This is the core segregation
-        // of duties control and it is enforced here, not in the UI.
-        || (existing().status == 'SUBMITTED'
-          && incoming().status == 'VERIFIED'
-          && incoming().verifiedBy == request.auth.uid
-          && request.auth.uid != existing().createdBy
-          && financialCoreUnchanged()
-          && incoming().revisionCount == existing().revisionCount)
-
-        // --- rejection back to the creator --------------------------------
-        || (existing().status == 'SUBMITTED'
-          && incoming().status in ['REJECTED', 'DRAFT']
-          && request.auth.uid != existing().createdBy
-          && financialCoreUnchanged()
-          && isNonEmptyString(incoming().rejectionReason, 500))
-
-        // --- publication ---------------------------------------------------
-        || (existing().status == 'VERIFIED'
+        // --- ordinary editing or direct publish -------------------
+        ((existing().status in ['DRAFT', 'SUBMITTED', 'VERIFIED'])
           && incoming().status == 'PUBLISHED'
           && incoming().publishedBy == request.auth.uid
           && financialCoreUnchanged()
-          && unchanged('verifiedBy')
           && incoming().revisionCount == existing().revisionCount)
+
+        || (existing().status == 'DRAFT'
+          && incoming().status in ['DRAFT', 'SUBMITTED']
+          && isValidAmount(incoming().amountPaise)
+          && unchanged('createdBy')
+          && incoming().revisionCount == existing().revisionCount)
+
+        // --- legacy verification & rejection ----------------------
+        || (existing().status == 'SUBMITTED'
+          && incoming().status == 'VERIFIED'
+          && incoming().verifiedBy == request.auth.uid
+          && financialCoreUnchanged()
+          && incoming().revisionCount == existing().revisionCount)
+
+        || (existing().status == 'SUBMITTED'
+          && incoming().status in ['REJECTED', 'DRAFT']
+          && financialCoreUnchanged()
+          && isNonEmptyString(incoming().rejectionReason, 500))
 
         // --- witnessed correction of locked history ------------------------
         || (isLocked(existing().status)
           && incoming().status == existing().status
           && unchanged('receiptNo')
           && unchanged('createdBy')
-          && unchanged('verifiedBy')
           && correctionIsWitnessed('donations', donationId))
 
         // --- witnessed reversal --------------------------------------------
@@ -269,47 +258,42 @@ service cloud.firestore {
       allow read: if canReadInternal();
 
       allow create: if isFinance()
-                    && incoming().status in ['DRAFT', 'SUBMITTED']
+                    && incoming().status in ['DRAFT', 'SUBMITTED', 'PUBLISHED']
                     && incoming().createdBy == request.auth.uid
                     && isValidAmount(incoming().amountPaise)
                     && isNonEmptyString(incoming().voucherNo, 40)
                     && isNonEmptyString(incoming().fundId, 60)
                     && isNonEmptyString(incoming().category, 60)
-                    && incoming().revisionCount == 0
-                    && incoming().verifiedBy == null;
+                    && incoming().revisionCount == 0;
 
       allow update: if isFinance() && (
-        (existing().status == 'DRAFT'
+        ((existing().status in ['DRAFT', 'SUBMITTED', 'VERIFIED'])
+          && incoming().status == 'PUBLISHED'
+          && incoming().publishedBy == request.auth.uid
+          && unchanged('amountPaise') && unchanged('fundId')
+          && unchanged('occurredAt') && unchanged('voucherNo')
+          && incoming().revisionCount == existing().revisionCount)
+
+        || (existing().status == 'DRAFT'
           && incoming().status in ['DRAFT', 'SUBMITTED']
           && isValidAmount(incoming().amountPaise)
           && unchanged('createdBy')
-          && incoming().revisionCount == existing().revisionCount
-          && incoming().verifiedBy == null)
+          && incoming().revisionCount == existing().revisionCount)
 
         || (existing().status == 'SUBMITTED'
           && incoming().status == 'VERIFIED'
           && incoming().verifiedBy == request.auth.uid
-          && request.auth.uid != existing().createdBy
           && unchanged('amountPaise') && unchanged('fundId')
           && unchanged('occurredAt') && unchanged('voucherNo') && unchanged('createdBy')
           && incoming().revisionCount == existing().revisionCount)
 
         || (existing().status == 'SUBMITTED'
           && incoming().status in ['REJECTED', 'DRAFT']
-          && request.auth.uid != existing().createdBy
           && isNonEmptyString(incoming().rejectionReason, 500))
-
-        || (existing().status == 'VERIFIED'
-          && incoming().status == 'PUBLISHED'
-          && incoming().publishedBy == request.auth.uid
-          && unchanged('amountPaise') && unchanged('fundId')
-          && unchanged('occurredAt') && unchanged('voucherNo')
-          && unchanged('verifiedBy')
-          && incoming().revisionCount == existing().revisionCount)
 
         || (isLocked(existing().status)
           && incoming().status == existing().status
-          && unchanged('voucherNo') && unchanged('createdBy') && unchanged('verifiedBy')
+          && unchanged('voucherNo') && unchanged('createdBy')
           && correctionIsWitnessed('expenses', expenseId))
 
         || (existing().status == 'PUBLISHED'
@@ -573,6 +557,11 @@ service cloud.firestore {
     }
 
     match /public_gallery/{id} {
+      allow read: if true;
+      allow write: if isContentAdmin();
+    }
+
+    match /public_videos/{id} {
       allow read: if true;
       allow write: if isContentAdmin();
     }

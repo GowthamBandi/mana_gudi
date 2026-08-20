@@ -14,6 +14,9 @@ import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 
+process.env.FIRESTORE_EMULATOR_HOST ??= "127.0.0.1:8080";
+process.env.FIREBASE_AUTH_EMULATOR_HOST ??= "127.0.0.1:9099";
+
 const PROJECT_ID = process.env.SEED_PROJECT_ID ?? "temple-seva-platform";
 const PASSWORD = process.env.SEED_PASSWORD ?? "TempleSeva#2026";
 

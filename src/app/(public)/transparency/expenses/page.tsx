@@ -13,8 +13,8 @@ export default function ExpensesPage() {
   return (
     <>
       <nav aria-label="Breadcrumb" className="mb-4 text-sm">
-        <Link href="/">Home</Link> <span aria-hidden="true">›</span>{" "}
-        <Link href="/transparency">Transparency</Link> <span aria-hidden="true">›</span> Expenses
+        <Link href="/" prefetch={false}>Home</Link> <span aria-hidden="true">›</span>{" "}
+        <Link href="/transparency" prefetch={false}>Transparency</Link> <span aria-hidden="true">›</span> Expenses
       </nav>
 
       <h1 className="text-3xl font-bold text-temple-800">Expense register</h1>

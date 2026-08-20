@@ -87,7 +87,7 @@ export interface NewDonationInput {
   occurredAt: Date;
   paymentMethod: Donation["paymentMethod"];
   referenceNo?: string | null;
-  submitImmediately?: boolean;
+  supportingDocPath?: string | null;
 }
 
 export async function createDonation(
@@ -122,27 +122,32 @@ export async function createDonation(
     occurredAt: input.occurredAt,
     paymentMethod: input.paymentMethod,
     referenceNo: input.referenceNo?.trim() || null,
-    status: input.submitImmediately ? ("SUBMITTED" as const) : ("DRAFT" as const),
+    supportingDocPath: input.supportingDocPath || null,
+    status: "PUBLISHED" as const,
     createdBy: actor.uid,
     createdAt: serverTimestamp(),
-    submittedBy: input.submitImmediately ? actor.uid : null,
+    submittedBy: actor.uid,
     verifiedBy: null,
     verifiedAt: null,
-    publishedBy: null,
-    publishedAt: null,
+    publishedBy: actor.uid,
+    publishedAt: serverTimestamp(),
     rejectionReason: null,
     lastCorrectionReason: null,
     revisionCount: 0,
   };
 
   await setDoc(ref, record);
+
   await recordAudit(actor, {
     action: "DONATION_CREATED",
     resourceType: "donation",
     resourceId: ref.id,
-    summary: `Recorded ${receiptNo} for ${input.donorName}`,
-    after: { receiptNo, amountPaise: input.amountPaise, status: record.status },
+    summary: `Recorded and published donation ${receiptNo} for ${input.donorName}`,
+    after: { receiptNo, amountPaise: input.amountPaise, status: "PUBLISHED" },
   });
+
+  // Write public projection immediately so public transparency reflects the donation instantly
+  await publishDonation(actor, ref.id);
 
   return { id: ref.id, receiptNo };
 }
@@ -240,15 +245,26 @@ export async function publishDonation(actor: AdminIdentity, id: string): Promise
   }
 
   const fund = await loadFund(donation.fundId);
-  try {
-    await setDoc(
-      doc(db(), "public_donations", id),
-      toPublicProjection({ ...donation, status: "PUBLISHED" }, fund?.name ?? "General Fund"),
-    );
-  } catch {
+  const projection = toPublicProjection({ ...donation, status: "PUBLISHED" }, fund?.name ?? "General Fund");
+
+  let projectionWritten = false;
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await setDoc(doc(db(), "public_donations", id), projection);
+      projectionWritten = true;
+      break;
+    } catch (err) {
+      lastError = err;
+      await new Promise((res) => setTimeout(res, 250 * (attempt + 1)));
+    }
+  }
+
+  if (!projectionWritten) {
     throw new WorkflowError(
-      `${donation.receiptNo} was marked published, but the public copy could not be written. ` +
-        `Press Publish again to retry — nothing is lost.`,
+      `${donation.receiptNo} was saved, but the public transparency copy failed to publish. ` +
+        `Error: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
       "PROJECTION_FAILED",
     );
   }

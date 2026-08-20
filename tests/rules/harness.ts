@@ -32,19 +32,28 @@ const ADMIN_FIXTURES: Array<[string, string, string]> = [
 ];
 
 export async function createTestEnv(): Promise<RulesTestEnvironment> {
-  // RULES_FILE lets the mutation-testing script point the suite at a
-  // deliberately weakened ruleset, to prove these tests can actually fail.
   const rulesPath = process.env.RULES_FILE ?? "firebase/firestore.rules";
   const rules = fs.readFileSync(path.resolve(process.cwd(), rulesPath), "utf8");
 
-  return initializeTestEnvironment({
+  const config: Parameters<typeof initializeTestEnvironment>[0] = {
     projectId: PROJECT_ID,
     firestore: {
       rules,
       host: "127.0.0.1",
       port: 8080,
     },
-  });
+  };
+
+  if (process.env.TEST_STORAGE) {
+    const storageRules = fs.readFileSync(path.resolve(process.cwd(), "firebase/storage.rules"), "utf8");
+    config.storage = {
+      rules: storageRules,
+      host: "127.0.0.1",
+      port: 9199,
+    };
+  }
+
+  return initializeTestEnvironment(config);
 }
 
 /** Seeds the administrator directory that the rules resolve roles from. */

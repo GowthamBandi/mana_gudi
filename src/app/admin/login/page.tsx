@@ -64,7 +64,7 @@ export default function AdminLoginPage() {
   return (
     <div className="mx-auto max-w-md px-4 py-12">
       <p className="mb-6 text-center">
-        <Link href="/">← Back to the temple website</Link>
+        <Link href="/" prefetch={false}>← Back to the temple website</Link>
       </p>
 
       <Card>

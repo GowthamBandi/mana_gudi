@@ -19,7 +19,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rounded-xl border border-sandal-200 bg-white p-5 shadow-[0_1px_3px_rgba(74,16,16,0.06)] ${className}`}
+      className={`rounded-xl border border-sandal-200 bg-white p-4 sm:p-5 shadow-[0_1px_3px_rgba(74,16,16,0.06)] min-w-0 max-w-full break-words ${className}`}
     >
       {children}
     </div>
@@ -58,6 +58,7 @@ const BUTTON_STYLES: Record<ButtonVariant, string> = {
 export function Button({
   children,
   variant = "primary",
+  size = "md",
   type = "button",
   disabled,
   onClick,
@@ -65,18 +66,19 @@ export function Button({
 }: {
   children: ReactNode;
   variant?: ButtonVariant;
+  size?: "sm" | "md" | "small";
   type?: "button" | "submit";
   disabled?: boolean;
   onClick?: () => void;
   className?: string;
 }) {
+  const sizeStyle = size === "sm" || size === "small" ? "min-h-9 px-3 py-1.5 text-sm" : "min-h-11 px-5 py-2.5";
   return (
     <button
       type={type}
       disabled={disabled}
       onClick={onClick}
-      // min-height 44px: the smallest comfortable touch target on a phone.
-      className={`inline-flex min-h-11 items-center justify-center rounded-lg px-5 py-2.5 font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${BUTTON_STYLES[variant]} ${className}`}
+      className={`inline-flex items-center justify-center rounded-lg font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${sizeStyle} ${BUTTON_STYLES[variant]} ${className}`}
     >
       {children}
     </button>
@@ -95,6 +97,7 @@ export function ButtonLink({
   return (
     <Link
       href={href}
+      prefetch={false}
       className={`inline-flex min-h-11 items-center justify-center rounded-lg px-5 py-2.5 font-semibold transition ${BUTTON_STYLES[variant]}`}
     >
       {children}
@@ -128,23 +131,40 @@ export function Amount({ paise, className = "" }: { paise: number; className?: s
 }
 
 /** Consistent empty state — tells the reader what they would see and why. */
-export function EmptyState({ title, hint }: { title: string; hint?: string }) {
+export function EmptyState({
+  title,
+  hint,
+  description,
+}: {
+  title: string;
+  hint?: string;
+  description?: string;
+}) {
+  const sub = hint || description;
   return (
     <div className="rounded-xl border border-dashed border-sandal-300 bg-sandal-50 p-8 text-center">
       <p className="font-semibold text-ink-700">{title}</p>
-      {hint ? <p className="mt-1 text-sm text-ink-500">{hint}</p> : null}
+      {sub ? <p className="mt-1 text-sm text-ink-500">{sub}</p> : null}
     </div>
   );
 }
 
-export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+export function ErrorState({
+  title = "Something went wrong",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  message: string;
+  onRetry?: () => void;
+}) {
   return (
-    <div role="alert" className="rounded-xl border border-alert-700/30 bg-alert-100 p-5">
-      <p className="font-semibold text-alert-700">Something went wrong</p>
-      <p className="mt-1 text-ink-700">{message}</p>
+    <div role="alert" className="rounded-xl border border-alert-700/30 bg-alert-100 p-5 text-alert-900">
+      <p className="font-semibold text-alert-700">{title}</p>
+      <p className="mt-1 text-sm text-ink-700">{message}</p>
       {onRetry ? (
         <div className="mt-3">
-          <Button variant="secondary" onClick={onRetry}>
+          <Button variant="secondary" size="sm" onClick={onRetry}>
             Try again
           </Button>
         </div>
@@ -170,7 +190,7 @@ export function Field({
   children,
 }: {
   label: string;
-  htmlFor: string;
+  htmlFor?: string;
   hint?: string;
   error?: string;
   required?: boolean;

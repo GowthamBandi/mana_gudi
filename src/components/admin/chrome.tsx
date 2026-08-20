@@ -28,9 +28,6 @@ export function AdminChrome({ children }: { children: ReactNode }) {
   const router = useRouter();
   const isLoginPage = pathname === "/admin/login";
 
-  // Route protection is a convenience, not a security control: the data itself
-  // is protected by the security rules, so a user who forces their way to an
-  // admin URL simply sees empty, permission-denied panels.
   useEffect(() => {
     if (!isLoginPage && state.phase === "signed-out") {
       router.replace("/admin/login");
@@ -99,33 +96,44 @@ export function AdminChrome({ children }: { children: ReactNode }) {
   );
 
   return (
-    <div className="min-h-screen bg-sandal-50">
-      <header className="border-b-4 border-marigold-500 bg-temple-900 text-white">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+    <div className="min-h-screen bg-sandal-50 pb-20 md:pb-8">
+      {/* Header */}
+      <header className="sticky top-0 z-30 border-b-4 border-marigold-500 bg-temple-900 text-white shadow-md">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
           <div>
-            <p className="text-lg font-bold">Committee portal</p>
-            <p className="text-sm text-marigold-100">
-              {identity.displayName} · {ROLE_LABELS[identity.role]}
+            <p className="text-base md:text-lg font-bold leading-tight">Mana Gudi Committee</p>
+            <p className="text-xs text-marigold-200 truncate max-w-[200px] md:max-w-none">
+              {identity.displayName} · <span className="font-semibold">{ROLE_LABELS[identity.role]}</span>
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <Link href="/" className="text-white">
-              View public site
+          <div className="flex items-center gap-2">
+            <Link
+              href="/"
+              prefetch={false}
+              className="inline-flex min-h-11 items-center rounded-lg bg-temple-800 px-3 text-xs font-semibold text-white hover:bg-temple-700"
+            >
+              Public Site ↗
             </Link>
-            <Button variant="secondary" onClick={() => void signOutNow()}>
+            <button
+              onClick={() => void signOutNow()}
+              className="inline-flex min-h-11 items-center rounded-lg bg-sandal-200 px-3 text-xs font-semibold text-temple-900 hover:bg-sandal-300"
+            >
               Sign out
-            </Button>
+            </button>
           </div>
         </div>
-        <nav aria-label="Committee sections" className="border-t border-white/15">
+
+        {/* Desktop Navigation */}
+        <nav aria-label="Committee sections" className="hidden md:block border-t border-white/15">
           <ul className="mx-auto flex max-w-6xl flex-wrap gap-1 px-4 py-1">
             {visibleNav.map((item) => (
               <li key={item.href}>
                 <Link
                   href={item.href}
+                  prefetch={false}
                   aria-current={pathname === item.href ? "page" : undefined}
-                  className={`inline-flex min-h-11 items-center rounded px-3 font-medium text-white no-underline hover:bg-temple-800 ${
-                    pathname === item.href ? "bg-temple-700 underline underline-offset-4" : ""
+                  className={`inline-flex min-h-11 items-center rounded px-3 text-sm font-medium text-white no-underline hover:bg-temple-800 ${
+                    pathname === item.href ? "bg-temple-700 underline underline-offset-4 font-bold" : ""
                   }`}
                 >
                   {item.label}
@@ -136,9 +144,87 @@ export function AdminChrome({ children }: { children: ReactNode }) {
         </nav>
       </header>
 
-      <main id="main" className="mx-auto max-w-6xl px-4 py-8">
+      {/* Main Content Area */}
+      <main id="main" className="mx-auto max-w-6xl px-3 py-4 md:px-4 md:py-8">
         {children}
       </main>
+
+      {/* Mobile Bottom Navigation Bar */}
+      <nav
+        aria-label="Mobile Navigation"
+        className="fixed bottom-0 left-0 right-0 z-40 border-t border-sandal-300 bg-temple-900 text-white shadow-lg md:hidden"
+      >
+        <ul className="grid grid-cols-5 h-16 items-center text-center">
+          <li>
+            <Link
+              href="/admin"
+              prefetch={false}
+              className={`flex flex-col items-center justify-center h-full text-[11px] font-semibold ${
+                pathname === "/admin" ? "text-marigold-400 bg-temple-800" : "text-sandal-200"
+              }`}
+            >
+              <span className="text-lg">📊</span>
+              <span>Overview</span>
+            </Link>
+          </li>
+          {can(identity, "donation:read") && (
+            <li>
+              <Link
+                href="/admin/donations"
+                prefetch={false}
+                className={`flex flex-col items-center justify-center h-full text-[11px] font-semibold ${
+                  pathname.startsWith("/admin/donations") ? "text-marigold-400 bg-temple-800" : "text-sandal-200"
+                }`}
+              >
+                <span className="text-lg">🙏</span>
+                <span>Donations</span>
+              </Link>
+            </li>
+          )}
+          {can(identity, "expense:read") && (
+            <li>
+              <Link
+                href="/admin/expenses"
+                prefetch={false}
+                className={`flex flex-col items-center justify-center h-full text-[11px] font-semibold ${
+                  pathname.startsWith("/admin/expenses") ? "text-marigold-400 bg-temple-800" : "text-sandal-200"
+                }`}
+              >
+                <span className="text-lg">🧾</span>
+                <span>Expenses</span>
+              </Link>
+            </li>
+          )}
+          {can(identity, "event:manage") && (
+            <li>
+              <Link
+                href="/admin/events"
+                prefetch={false}
+                className={`flex flex-col items-center justify-center h-full text-[11px] font-semibold ${
+                  pathname.startsWith("/admin/events") ? "text-marigold-400 bg-temple-800" : "text-sandal-200"
+                }`}
+              >
+                <span className="text-lg">🪔</span>
+                <span>Events</span>
+              </Link>
+            </li>
+          )}
+          {can(identity, "audit:read") && (
+            <li>
+              <Link
+                href="/admin/audit"
+                prefetch={false}
+                className={`flex flex-col items-center justify-center h-full text-[11px] font-semibold ${
+                  pathname.startsWith("/admin/audit") ? "text-marigold-400 bg-temple-800" : "text-sandal-200"
+                }`}
+              >
+                <span className="text-lg">📜</span>
+                <span>Audit</span>
+              </Link>
+            </li>
+          )}
+        </ul>
+      </nav>
     </div>
   );
 }

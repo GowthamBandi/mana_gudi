@@ -28,8 +28,7 @@
         "source": "/admin/**",
         "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
       }
-    ],
-    "rewrites": [{ "source": "**", "destination": "/404.html" }]
+    ]
   },
   "emulators": {
     "auth": { "port": 9099 },

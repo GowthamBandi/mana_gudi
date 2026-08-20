@@ -13,7 +13,7 @@ export default function AnnouncementsPage() {
   return (
     <>
       <nav aria-label="Breadcrumb" className="mb-4 text-sm">
-        <Link href="/">Home</Link> <span aria-hidden="true">›</span> Notices
+        <Link href="/" prefetch={false}>Home</Link> <span aria-hidden="true">›</span> Notices
       </nav>
 
       <h1 className="text-3xl font-bold text-temple-800">Notices from the committee</h1>

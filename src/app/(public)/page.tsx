@@ -1,39 +1,37 @@
-import type { Metadata } from "next";
+"use client";
+
 import Link from "next/link";
 import { HomeDashboard, HomeEvents } from "@/components/home-sections";
 import { ButtonLink, Card } from "@/components/ui";
-
-export const metadata: Metadata = {
-  title: "Sri Temple Seva — Village Temple Trust",
-  description:
-    "Daily temple timings, upcoming poojas and festivals, and a complete public record of temple donations and expenses.",
-  alternates: { canonical: "/" },
-};
+import { useLanguage } from "@/lib/i18n/context";
 
 export default function HomePage() {
+  const { t } = useLanguage();
+
   return (
     <>
       <section className="mb-10 rounded-2xl bg-temple-800 px-6 py-10 text-white md:px-10 md:py-14">
-        <p className="mb-2 font-semibold text-marigold-400">Sri Temple Seva · Village Trust</p>
+        <p className="mb-2 font-semibold text-marigold-400">{t.tagline}</p>
         <h1 className="max-w-2xl text-3xl font-bold leading-tight md:text-4xl">
-          Every rupee given to this temple is shown to the whole village.
+          {t.homeHeroHeading}
         </h1>
         <p className="mt-4 max-w-2xl text-lg text-sandal-100">
-          You do not need an account and you do not need to ask anyone. Donations, expenses and
-          fund balances are published here, and any receipt can be checked by its number.
+          {t.homeHeroSub}
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
             href="/transparency"
+            prefetch={false}
             className="inline-flex min-h-11 items-center justify-center rounded-lg bg-marigold-500 px-5 py-2.5 font-semibold text-temple-900 no-underline hover:bg-marigold-400"
           >
-            See the temple accounts
+            {t.btnSeeFullAccounts}
           </Link>
           <Link
             href="/verify"
+            prefetch={false}
             className="inline-flex min-h-11 items-center justify-center rounded-lg border border-white/60 px-5 py-2.5 font-semibold text-white no-underline hover:bg-temple-700"
           >
-            Check a receipt
+            {t.btnVerifyReceipt}
           </Link>
         </div>
       </section>

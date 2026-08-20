@@ -14,10 +14,13 @@ const CATEGORY_LABELS: Record<string, string> = {
   CAMPAIGN: "Appeal",
 };
 
+import { useLanguage } from "@/lib/i18n/context";
+
 export function AnnouncementsList() {
   const state = useAsync(() => announcements(50), []);
+  const { t } = useLanguage();
 
-  if (state.phase === "loading") return <LoadingState label="Loading notices" />;
+  if (state.phase === "loading") return <LoadingState label={t.loadingLabel} />;
   if (state.phase === "error")
     return (
       <div className="mt-6">
@@ -28,8 +31,8 @@ export function AnnouncementsList() {
     return (
       <div className="mt-6">
         <EmptyState
-          title="There are no notices at the moment"
-          hint="Announcements from the temple committee will appear here."
+          title={t.emptyAnnouncementsTitle}
+          hint={t.emptyAnnouncementsHint}
         />
       </div>
     );

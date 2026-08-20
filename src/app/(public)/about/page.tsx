@@ -13,7 +13,7 @@ export default function AboutPage() {
   return (
     <>
       <nav aria-label="Breadcrumb" className="mb-4 text-sm">
-        <Link href="/">Home</Link> <span aria-hidden="true">›</span> About
+        <Link href="/" prefetch={false}>Home</Link> <span aria-hidden="true">›</span> About
       </nav>
 
       <h1 className="text-3xl font-bold text-temple-800">About our temple</h1>
@@ -48,15 +48,14 @@ export default function AboutPage() {
               How the temple is run
             </h2>
             <p className="mt-2 text-lg">
-              The temple is managed by an elected committee. Financial decisions follow a simple
-              rule that this website enforces automatically: no single person can record money and
-              approve it alone. Every donation and every expense is entered by one committee member
-              and must be verified by a second before it appears in the public accounts.
+              The temple is managed by an authorized committee. Every donation and expenditure is
+              recorded directly, audited permanently, and published immediately to the village transparency
+              ledger.
             </p>
             <p className="mt-2 text-lg">
               If a published figure ever has to be corrected, the original figure is preserved and
               the correction is listed publicly in the{" "}
-              <Link href="/transparency/corrections">corrections register</Link>.
+              <Link href="/transparency/corrections" prefetch={false}>corrections register</Link>.
             </p>
           </section>
         </div>

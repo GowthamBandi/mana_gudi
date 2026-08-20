@@ -15,7 +15,7 @@ export default function VerifyPage() {
   return (
     <>
       <nav aria-label="Breadcrumb" className="mb-4 text-sm">
-        <Link href="/">Home</Link> <span aria-hidden="true">›</span> Verify a receipt
+        <Link href="/" prefetch={false}>Home</Link> <span aria-hidden="true">›</span> Verify a receipt
       </nav>
 
       <h1 className="text-3xl font-bold text-temple-800">Verify a donation receipt</h1>

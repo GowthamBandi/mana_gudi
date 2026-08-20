@@ -13,7 +13,7 @@ export default function VolunteerPage() {
   return (
     <>
       <nav aria-label="Breadcrumb" className="mb-4 text-sm">
-        <Link href="/">Home</Link> <span aria-hidden="true">›</span> Volunteer
+        <Link href="/" prefetch={false}>Home</Link> <span aria-hidden="true">›</span> Volunteer
       </nav>
 
       <h1 className="text-3xl font-bold text-temple-800">Volunteer for seva</h1>
@@ -41,11 +41,11 @@ export default function VolunteerPage() {
             one the same way you would register for a pooja — just your name and mobile number.
           </p>
           <p className="mt-3">
-            <Link href="/events">See upcoming volunteer activities →</Link>
+            <Link href="/events" prefetch={false}>See upcoming volunteer activities →</Link>
           </p>
-          <p className="mt-3 text-ink-700">
-            You can also speak to any committee member at the temple office, or send a message
-            through the <Link href="/feedback">suggestions form</Link>.
+          <p className="mt-2 text-ink-700">
+            If you have a specialized skill (electrical, civil, accounting, medical), let us know
+            through the <Link href="/feedback" prefetch={false}>suggestions form</Link>.
           </p>
         </Card>
       </div>

@@ -31,16 +31,29 @@ export function useAsync<T>(
 
   useEffect(() => {
     let active = true;
+    const timer = setTimeout(() => {
+      if (active) {
+        setState({
+          phase: "error",
+          message: "Request timed out while contacting temple records. Please check your connection and tap try again.",
+        });
+      }
+    }, 5000);
+
     run()
       .then((data) => {
+        clearTimeout(timer);
         if (active) setState({ phase: "ready", data });
       })
       .catch((error: unknown) => {
+        clearTimeout(timer);
         if (!active) return;
         setState({ phase: "error", message: describeError(error) });
       });
+
     return () => {
       active = false;
+      clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, nonce]);
